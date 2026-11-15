@@ -1,0 +1,4 @@
+# Copilot Instructions
+
+## Рекомендации по проекту
+- Coding/project instructions for TutorSys: respond in Russian; keep identifiers/code and commit messages English, UI text/comments/docstrings Russian; use Decimal for hours and keep business logic in calculations.py. Write tests before fixes, run Django tests and makemigrations --check when possible; explicitly report blockers. Enforce server-side permissions, use Django Form/ModelForm validation, no bare except or raw exception text, no CDN. Follow the provided ordered CLAUDE.md task list, starting with restricting recalculation to deputy_dean; preserve existing behavior for head editing global settings and document global impact in README. Do not delete stale docs without user confirmation.

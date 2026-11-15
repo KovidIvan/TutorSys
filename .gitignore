@@ -3,3 +3,11 @@ bin/
 obj/
 *.user
 .vs/
+.env
+.venv/
+env/
+__pycache__/
+*.py[cod]
+db.sqlite3
+test.sqlite3
+staticfiles/

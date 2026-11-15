@@ -20,7 +20,6 @@ urlpatterns = [
 
     # Журнал
     path('journal/', views.journal_view, name='journal'),
-    path('journal/kinds/', views.load_kinds_for_discipline_view, name='load_kinds'),
 
     # Отчёт
     path('report/', views.report_view, name='report'),

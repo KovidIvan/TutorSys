@@ -6,18 +6,19 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Sum
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse
 from django.views.decorators.http import require_http_methods
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from .models import (
-    CalcSettings, PositionRule, Discipline, Department, Teacher, LoadItem, Group, JournalEntry,
-    Adjustment
+    CalcSettings, PositionRule, Discipline, Department, Teacher, LoadItem, JournalEntry, Adjustment
 )
+from .forms import AddPositionForm, CalcSettingsForm, JournalEntryForm, PositionRuleForm
 from .calculations import (
-    calc_department_load, recalculate_department, check_teacher, teacher_total, report_for_teacher
+    calc_department_load, recalculate_department, check_teachers, teacher_total,
+    report_for_teacher
 )
 
 
@@ -25,7 +26,9 @@ from .calculations import (
 
 def has_role(user, role_name):
     """Проверить, есть ли у пользователя указанная роль."""
-    return user.groups.filter(name=role_name).exists()
+    if not hasattr(user, '_role_names'):
+        user._role_names = set(user.groups.values_list('name', flat=True))
+    return role_name in user._role_names
 
 
 def get_user_role(user):
@@ -52,20 +55,12 @@ def add_role_context(context, request):
     return context
 
 
-def check_teacher_status(teacher):
-    """
-    Получить статус преподавателя (OK, Warning, Critical).
-    Возвращает статус и список предупреждений.
-    """
-    total = teacher_total(teacher)
-    warnings = check_teacher(teacher)
-
-    if len(warnings) > 1:
-        return 'critical', warnings
-    elif len(warnings) == 1:
-        return 'warning', warnings
-    else:
-        return 'ok', []
+def add_form_errors(request, form):
+    for field_name, errors in form.errors.items():
+        field = form.fields.get(field_name)
+        label = field.label if field else 'Форма'
+        for error in errors:
+            messages.error(request, f'{label}: {error}')
 
 
 # ============ ПАРАМЕТРЫ РАСЧЁТА ============
@@ -92,74 +87,73 @@ def settings_view(request):
 
         # ============ ОБНОВЛЕНИЕ CALCSETTINGS ============
         if action == 'update_settings':
-            try:
-                settings.exam_hours_per_student = request.POST.get('exam_hours_per_student')
-                settings.exam_consult_hours_per_group = request.POST.get('exam_consult_hours_per_group')
-                settings.credit_hours_per_student = request.POST.get('credit_hours_per_student')
-                settings.usr_control_hours_per_group = request.POST.get('usr_control_hours_per_group')
-                settings.kr_hours_per_student = request.POST.get('kr_hours_per_student')
-                settings.subgroups_per_group = request.POST.get('subgroups_per_group')
-                settings.save()
-
+            form = CalcSettingsForm(request.POST, instance=settings)
+            if form.is_valid():
+                form.save()
                 messages.success(
                     request,
                     'Параметры расчёта обновлены. '
                     'Для пересчёта нагрузки кафедр используйте кнопку ниже.'
                 )
-            except Exception as e:
-                messages.error(request, f'Ошибка при сохранении параметров: {e}')
+            else:
+                add_form_errors(request, form)
 
         # ============ ПЕРЕСЧЁТ НАГРУЗКИ ============
         elif action == 'recalculate_all':
+            if not has_role(request.user, 'deputy_dean'):
+                return render(request, 'core/error.html', {
+                    'message': '❌ Доступ запрещён. Пересчитывать нагрузку всех кафедр может только зам. декана.',
+                    'code': 403
+                }, status=403)
             try:
                 departments = Department.objects.all()
+                recalculation_totals = {
+                    'created': 0,
+                    'updated': 0,
+                    'deleted': 0,
+                    'deleted_with_teacher': 0,
+                }
                 for dept in departments:
-                    recalculate_department(dept, settings)
+                    summary = recalculate_department(dept, settings)
+                    for key in recalculation_totals:
+                        recalculation_totals[key] += summary[key]
                 messages.success(
                     request,
                     f'Нагрузка пересчитана для {departments.count()} кафедр. '
-                    'Назначенные преподаватели сохранены.'
+                    f"Создано: {recalculation_totals['created']}; "
+                    f"обновлено: {recalculation_totals['updated']}; "
+                    f"удалено: {recalculation_totals['deleted']} "
+                    f"(с назначенным преподавателем: {recalculation_totals['deleted_with_teacher']}). "
+                    'Элементы с записями в журнале сохранены.'
                 )
-            except Exception as e:
-                messages.error(request, f'Ошибка при пересчёте: {e}')
+            except Exception:
+                messages.error(request, 'Не удалось пересчитать нагрузку. Проверьте данные и повторите попытку.')
 
         # ============ ОБНОВЛЕНИЕ ДОЛЖНОСТИ ============
         elif action == 'update_position':
             position_id = request.POST.get('position_id')
-            try:
-                position = get_object_or_404(PositionRule, pk=position_id)
-                position.min_hours = request.POST.get('min_hours')
-                position.max_hours = request.POST.get('max_hours')
-                position.min_lecture_hours = request.POST.get('min_lecture_hours')
-                position.can_lecture = request.POST.get('can_lecture') == 'on'
-                position.save()
-
+            position = get_object_or_404(PositionRule, pk=position_id)
+            form = PositionRuleForm(request.POST, instance=position)
+            if form.is_valid():
+                form.save()
                 messages.success(request, f'Должность "{position.position}" обновлена.')
-            except Exception as e:
-                messages.error(request, f'Ошибка при сохранении должности: {e}')
+            else:
+                add_form_errors(request, form)
 
         # ============ ДОБАВЛЕНИЕ НОВОЙ ДОЛЖНОСТИ ============
         elif action == 'add_position':
-            try:
-                position_name = request.POST.get('new_position_name')
-                if PositionRule.objects.filter(position=position_name).exists():
-                    messages.error(request, f'Должность "{position_name}" уже существует.')
-                else:
-                    PositionRule.objects.create(
-                        position=position_name,
-                        min_hours=int(request.POST.get('new_min_hours', 840)),
-                        max_hours=int(request.POST.get('new_max_hours', 900)),
-                        min_lecture_hours=int(request.POST.get('new_min_lecture_hours', 200)),
-                        can_lecture=request.POST.get('new_can_lecture') == 'on'
-                    )
-                    messages.success(request, f'Должность "{position_name}" добавлена.')
-            except Exception as e:
-                messages.error(request, f'Ошибка при добавлении должности: {e}')
+            form = AddPositionForm(request.POST)
+            if form.is_valid():
+                position = PositionRule.objects.create(**form.cleaned_data)
+                messages.success(request, f'Должность "{position.position}" добавлена.')
+            else:
+                add_form_errors(request, form)
 
         return redirect('core:settings')
 
     context = {
         'settings': settings,
+        'settings_form': CalcSettingsForm(instance=settings),
         'position_rules': position_rules,
     }
     context = add_role_context(context, request)
@@ -185,7 +179,7 @@ def distribution_view(request):
     user_department = None
     try:
         user_department = request.user.teacher.department
-    except:
+    except Teacher.DoesNotExist:
         pass
 
     if user_department:
@@ -199,9 +193,9 @@ def distribution_view(request):
     ).select_related('discipline', 'group', 'teacher').order_by('discipline', 'kind') if user_department else LoadItem.objects.none()
 
     # Преподаватели кафедры
-    teachers = Teacher.objects.filter(
+    teachers = list(Teacher.objects.filter(
         department=user_department
-    ).select_related('position') if user_department else Teacher.objects.none()
+    ).select_related('position').prefetch_related('specialization') if user_department else Teacher.objects.none())
 
     # Обновление назначения преподавателя
     if request.method == 'POST':
@@ -209,28 +203,44 @@ def distribution_view(request):
         teacher_id = request.POST.get('teacher_id')
 
         try:
-            load_item = get_object_or_404(LoadItem, pk=load_item_id)
+            load_item = get_object_or_404(
+                LoadItem,
+                pk=load_item_id,
+                discipline__department=user_department
+            )
             if teacher_id:
-                teacher = get_object_or_404(Teacher, pk=teacher_id)
+                teacher = Teacher.objects.filter(
+                    pk=teacher_id,
+                    department=user_department
+                ).first()
+                if teacher is None:
+                    messages.error(request, 'Нельзя назначить нагрузку преподавателю другой кафедры.')
+                    return redirect('core:distribution')
                 load_item.teacher = teacher
             else:
                 load_item.teacher = None
             load_item.save()
 
             messages.success(request, 'Назначение обновлено.')
-        except Exception as e:
-            messages.error(request, f'Ошибка: {e}')
+        except (ValueError, LoadItem.DoesNotExist, Teacher.DoesNotExist):
+            messages.error(request, 'Не удалось изменить назначение. Проверьте выбранные данные.')
 
         return redirect('core:distribution')
 
     # Подготовить данные для панели преподавателей
+    totals = {
+        row['teacher_id']: row['total'] or Decimal('0')
+        for row in LoadItem.objects.filter(teacher__in=teachers)
+        .values('teacher_id').annotate(total=Sum('hours'))
+    }
+    warnings_by_teacher = check_teachers(teachers)
     teachers_data = []
     for teacher in teachers:
-        total = teacher_total(teacher)
-        status, warnings = check_teacher_status(teacher)
+        warnings = warnings_by_teacher[teacher.pk]
+        status = 'critical' if len(warnings) > 1 else 'warning' if warnings else 'ok'
         teachers_data.append({
             'teacher': teacher,
-            'total_hours': total,
+            'total_hours': totals.get(teacher.pk, Decimal('0')),
             'status': status,
             'warnings': warnings,
         })
@@ -261,24 +271,29 @@ def load_teacher_panel_view(request):
     user_department = None
     try:
         user_department = request.user.teacher.department
-    except:
+    except Teacher.DoesNotExist:
         pass
 
     if not user_department:
         return render(request, 'core/_teacher_panel.html', {'teachers_data': []})
 
-    teachers = Teacher.objects.filter(
+    teachers = list(Teacher.objects.filter(
         department=user_department
-    ).select_related('position')
+    ).select_related('position').prefetch_related('specialization'))
 
-    # Подготовить данные
+    totals = {
+        row['teacher_id']: row['total'] or Decimal('0')
+        for row in LoadItem.objects.filter(teacher__in=teachers)
+        .values('teacher_id').annotate(total=Sum('hours'))
+    }
+    warnings_by_teacher = check_teachers(teachers)
     teachers_data = []
     for teacher in teachers:
-        total = teacher_total(teacher)
-        status, warnings = check_teacher_status(teacher)
+        warnings = warnings_by_teacher[teacher.pk]
+        status = 'critical' if len(warnings) > 1 else 'warning' if warnings else 'ok'
         teachers_data.append({
             'teacher': teacher,
-            'total_hours': total,
+            'total_hours': totals.get(teacher.pk, Decimal('0')),
             'status': status,
             'warnings': warnings,
         })
@@ -303,7 +318,7 @@ def workload_view(request):
 
     try:
         teacher = request.user.teacher
-    except:
+    except Teacher.DoesNotExist:
         teacher = None
 
     if not teacher:
@@ -354,7 +369,7 @@ def journal_view(request):
 
     try:
         teacher = request.user.teacher
-    except:
+    except Teacher.DoesNotExist:
         teacher = None
 
     if not teacher:
@@ -373,31 +388,19 @@ def journal_view(request):
         teacher=teacher
     ).select_related('load_item', 'load_item__discipline').order_by('-date')
 
+    entry_form = JournalEntryForm(teacher=teacher)
     if request.method == 'POST':
         action = request.POST.get('action')
 
         if action == 'add_entry':
-            try:
-                load_item_id = request.POST.get('load_item_id')
-                date = request.POST.get('date')
-                time = request.POST.get('time')
-                hours = request.POST.get('hours')
-                topic = request.POST.get('topic')
-
-                load_item = get_object_or_404(LoadItem, pk=load_item_id, teacher=teacher)
-
-                JournalEntry.objects.create(
-                    teacher=teacher,
-                    load_item=load_item,
-                    date=date,
-                    time=time if time else None,
-                    hours=hours,
-                    topic=topic
-                )
-
+            entry_form = JournalEntryForm(request.POST, teacher=teacher)
+            if entry_form.is_valid():
+                entry = entry_form.save(commit=False)
+                entry.teacher = teacher
+                entry.save()
                 messages.success(request, 'Запись в журнал добавлена.')
-            except Exception as e:
-                messages.error(request, f'Ошибка при добавлении запроса: {e}')
+            else:
+                add_form_errors(request, entry_form)
 
         return redirect('core:journal')
 
@@ -405,6 +408,7 @@ def journal_view(request):
         'teacher': teacher,
         'load_items': load_items,
         'journal_entries': journal_entries,
+        'entry_form': entry_form,
     }
     context = add_role_context(context, request)
     return render(request, 'core/journal.html', context)
@@ -633,6 +637,11 @@ def export_excel_view(request, export_type):
             )
 
         teachers = Teacher.objects.filter(department=department).select_related('position')
+        totals = {
+            row['teacher_id']: row['total'] or Decimal('0')
+            for row in LoadItem.objects.filter(teacher__in=teachers)
+            .values('teacher_id').annotate(total=Sum('hours'))
+        }
         rows = [
             (
                 teacher.full_name,
@@ -642,7 +651,7 @@ def export_excel_view(request, export_type):
                 teacher.rate,
                 teacher.effective_min_hours,
                 teacher.effective_max_hours,
-                teacher_total(teacher)
+                totals.get(teacher.pk, Decimal('0'))
             )
             for teacher in teachers
         ]
@@ -781,39 +790,3 @@ def export_excel_view(request, export_type):
     )
 
 
-@login_required
-@require_http_methods(["GET"])
-def load_kinds_for_discipline_view(request):
-    """
-    AJAX endpoint: получить виды работ для дисциплины (для зависимого списка).
-    """
-    if not has_role(request.user, 'teacher'):
-        return JsonResponse({'error': 'Access denied'}, status=403)
-
-    try:
-        teacher = request.user.teacher
-    except:
-        return JsonResponse({'error': 'Not a teacher'}, status=404)
-
-    load_item_id = request.GET.get('load_item_id')
-
-    try:
-        load_item = LoadItem.objects.get(
-            pk=load_item_id,
-            teacher=teacher
-        )
-
-        # Получить все элементы этой дисциплины для этого преподавателя
-        discipline_items = LoadItem.objects.filter(
-            discipline=load_item.discipline,
-            teacher=teacher
-        ).values_list('id', 'get_kind_display').distinct()
-
-        items_list = [
-            {'id': item[0], 'kind': item[1]}
-            for item in discipline_items
-        ]
-
-        return JsonResponse({'items': items_list})
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)

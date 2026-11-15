@@ -489,6 +489,28 @@ class LoadItem(models.Model):
         verbose_name = 'Элемент нагрузки'
         verbose_name_plural = 'Элементы нагрузки'
         ordering = ['discipline', 'kind']
+        constraints = [
+            models.UniqueConstraint(
+                fields=('discipline', 'kind'),
+                condition=Q(group__isnull=True, subgroup_no__isnull=True),
+                name='uq_loaditem_null_stream'
+            ),
+            models.UniqueConstraint(
+                fields=('discipline', 'kind', 'subgroup_no'),
+                condition=Q(group__isnull=True, subgroup_no__isnull=False),
+                name='uq_loaditem_null_group_subgroup'
+            ),
+            models.UniqueConstraint(
+                fields=('discipline', 'kind', 'group'),
+                condition=Q(group__isnull=False, subgroup_no__isnull=True),
+                name='uq_loaditem_group_only'
+            ),
+            models.UniqueConstraint(
+                fields=('discipline', 'kind', 'group', 'subgroup_no'),
+                condition=Q(group__isnull=False, subgroup_no__isnull=False),
+                name='uq_loaditem_group_subgroup'
+            ),
+        ]
 
     def __str__(self):
         info = f'{self.discipline.name} — {self.get_kind_display()}'

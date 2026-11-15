@@ -5,7 +5,9 @@
 """
 
 from decimal import Decimal
-from typing import List, Dict, Tuple
+from typing import List, Dict
+from django.db import transaction
+from django.db.models import Count, Q, Sum
 from .models import LoadItem, Teacher, CalcSettings, Discipline
 
 
@@ -72,23 +74,16 @@ def calc_department_load(discipline: Discipline, settings: CalcSettings) -> List
 
     # Экзамен или Зачёт (в зависимости от control_form)
     if discipline.control_form == 'exam':
-        # Экзамен: часы на студента + консультации
-        total_students = sum(g.students_count for g in groups)
-        exam_hours = Decimal(str(total_students)) * settings.exam_hours_per_student
-
-        # Консультации добавляются на каждую группу
         for group in groups:
+            exam_hours = (
+                Decimal(str(group.students_count)) * settings.exam_hours_per_student
+                + settings.exam_consult_hours_per_group
+            )
             load_items.append({
                 'kind': 'exam',
                 'group': group,
                 'subgroup_no': None,
-                'hours': Decimal(str(group.students_count)) * settings.exam_hours_per_student,
-            })
-            load_items.append({
-                'kind': 'exam',  # консультации тоже kind='exam' для простоты
-                'group': group,
-                'subgroup_no': None,
-                'hours': settings.exam_consult_hours_per_group,
+                'hours': exam_hours,
             })
 
     elif discipline.control_form == 'credit':
@@ -127,6 +122,7 @@ def calc_department_load(discipline: Discipline, settings: CalcSettings) -> List
     return load_items
 
 
+@transaction.atomic
 def recalculate_department(department, settings: CalcSettings):
     """
     Пересчитать нагрузку всех дисциплин кафедры.
@@ -139,63 +135,71 @@ def recalculate_department(department, settings: CalcSettings):
     """
     from .models import JournalEntry
 
+    summary = {
+        'created': 0,
+        'updated': 0,
+        'deleted': 0,
+        'deleted_with_teacher': 0,
+    }
     disciplines = Discipline.objects.filter(department=department)
-
+    desired_items = {}
     for discipline in disciplines:
-        # Рассчитать эталонные элементы
-        load_specs = calc_department_load(discipline, settings)
+        for spec in calc_department_load(discipline, settings):
+            key = (
+                discipline.pk,
+                spec['kind'],
+                spec['group'].pk if spec['group'] else None,
+                spec['subgroup_no'],
+            )
+            desired_items[key] = (discipline, spec)
 
-        # Для каждого эталонного элемента
-        for spec in load_specs:
-            # Построить уникальный ключ (без часов)
-            key = (discipline.id, spec['kind'], 
-                   spec['group'].id if spec['group'] else None,
-                   spec['subgroup_no'])
+    existing_items = list(
+        LoadItem.objects.filter(discipline__department=department)
+        .select_related('discipline', 'group', 'teacher')
+    )
+    existing_by_key = {
+        (item.discipline_id, item.kind, item.group_id, item.subgroup_no): item
+        for item in existing_items
+    }
 
-            # Найти существующий LoadItem
-            existing = LoadItem.objects.filter(
+    items_to_create = []
+    items_to_update = []
+    for key, (discipline, spec) in desired_items.items():
+        item = existing_by_key.get(key)
+        if item is None:
+            items_to_create.append(LoadItem(
                 discipline=discipline,
                 kind=spec['kind'],
                 group=spec['group'],
-                subgroup_no=spec['subgroup_no']
-            ).first()
+                subgroup_no=spec['subgroup_no'],
+                hours=spec['hours'],
+            ))
+            continue
+        if item.hours != spec['hours']:
+            item.hours = spec['hours']
+            items_to_update.append(item)
 
-            if existing:
-                # Обновить только часы, преподаватель остаётся
-                existing.hours = spec['hours']
-                existing.save()
-            else:
-                # Создать новый
-                LoadItem.objects.create(
-                    discipline=discipline,
-                    kind=spec['kind'],
-                    group=spec['group'],
-                    subgroup_no=spec['subgroup_no'],
-                    hours=spec['hours'],
-                    teacher=None
-                )
+    if items_to_create:
+        LoadItem.objects.bulk_create(items_to_create)
+        summary['created'] = len(items_to_create)
+    if items_to_update:
+        LoadItem.objects.bulk_update(items_to_update, ['hours'])
+        summary['updated'] = len(items_to_update)
 
-        # Удалить лишние элементы (кроме тех, на которые есть записи журнала)
-        existing_items = LoadItem.objects.filter(discipline=discipline)
-        for item in existing_items:
-            key = (item.discipline.id, item.kind,
-                   item.group.id if item.group else None,
-                   item.subgroup_no)
+    surplus_items = [item for key, item in existing_by_key.items() if key not in desired_items]
+    surplus_ids = [item.pk for item in surplus_items]
+    journal_item_ids = set(
+        JournalEntry.objects.filter(load_item_id__in=surplus_ids)
+        .values_list('load_item_id', flat=True)
+    ) if surplus_ids else set()
+    items_to_delete = [item for item in surplus_items if item.pk not in journal_item_ids]
+    if items_to_delete:
+        delete_ids = [item.pk for item in items_to_delete]
+        LoadItem.objects.filter(pk__in=delete_ids).delete()
+        summary['deleted'] = len(delete_ids)
+        summary['deleted_with_teacher'] = sum(item.teacher_id is not None for item in items_to_delete)
 
-            # Проверить, есть ли такой в рассчитанных
-            found = False
-            for spec in load_specs:
-                spec_key = (discipline.id, spec['kind'],
-                           spec['group'].id if spec['group'] else None,
-                           spec['subgroup_no'])
-                if key == spec_key:
-                    found = True
-                    break
-
-            if not found:
-                # Проверить, есть ли записи журнала
-                if not JournalEntry.objects.filter(load_item=item).exists():
-                    item.delete()
+    return summary
 
 
 # ============ ПРОВЕРКА НАГРУЗКИ ПРЕПОДАВАТЕЛЯ ============
@@ -218,8 +222,28 @@ def check_teacher(teacher: Teacher) -> List[str]:
     - Назначены лекции, но position.can_lecture=False
     - Дисциплина вне специализации
     """
+    load_items = LoadItem.objects.filter(teacher=teacher)
+    totals = load_items.aggregate(
+        total=Sum('hours'),
+        lecture_hours=Sum('hours', filter=Q(kind='lec')),
+        lecture_count=Count('pk', filter=Q(kind='lec')),
+    )
+    total = totals['total'] or Decimal('0')
+    assigned_disciplines = list(
+        Discipline.objects.filter(load_items__teacher=teacher).distinct()
+    )
+    specialized_discipline_ids = set(teacher.specialization.values_list('pk', flat=True))
+    return _teacher_warnings(
+        teacher,
+        total,
+        totals['lecture_hours'] or Decimal('0'),
+        totals['lecture_count'] > 0,
+        [discipline for discipline in assigned_disciplines if discipline.pk not in specialized_discipline_ids],
+    )
+
+
+def _teacher_warnings(teacher, total, lecture_hours, has_lectures, outside_specialization):
     warnings = []
-    total = teacher_total(teacher)
 
     # Проверка минимума
     if total < Decimal(str(teacher.effective_min_hours)):
@@ -235,10 +259,6 @@ def check_teacher(teacher: Teacher) -> List[str]:
 
     # Проверка лекций
     if teacher.position and teacher.position.can_lecture:
-        lecture_hours = LoadItem.objects.filter(
-            teacher=teacher, kind='lec'
-        ).aggregate(total=Sum('hours'))['total'] or Decimal('0')
-
         min_lecture = Decimal(str(teacher.position.min_lecture_hours * teacher.rate))
         if lecture_hours < min_lecture:
             warnings.append(
@@ -247,28 +267,61 @@ def check_teacher(teacher: Teacher) -> List[str]:
 
     # Проверка прав на лекции
     if not teacher.position or not teacher.position.can_lecture:
-        lecture_count = LoadItem.objects.filter(
-            teacher=teacher, kind='lec'
-        ).count()
-        if lecture_count > 0:
+        if has_lectures:
             warnings.append(
                 f'Назначены лекции, но по должности не может читать'
             )
 
-    # Проверка специализации
-    assigned_disciplines = (
-        LoadItem.objects.filter(teacher=teacher)
-        .values_list('discipline', flat=True)
-        .distinct()
-    )
-    for disc_id in assigned_disciplines:
-        discipline = Discipline.objects.get(pk=disc_id)
-        if not teacher.specialization.filter(pk=disc_id).exists():
-            warnings.append(
-                f'Дисциплина "{discipline.name}" вне специализации'
-            )
+    for discipline in outside_specialization:
+        warnings.append(f'Дисциплина "{discipline.name}" вне специализации')
 
     return warnings
+
+
+def check_teachers(teachers) -> Dict[int, List[str]]:
+    """Проверить несколько преподавателей общими запросами для панелей кафедры."""
+    teachers = list(teachers)
+    teacher_ids = [teacher.pk for teacher in teachers]
+    if not teacher_ids:
+        return {}
+    totals_by_teacher = {
+        row['teacher_id']: row
+        for row in LoadItem.objects.filter(teacher_id__in=teacher_ids)
+        .values('teacher_id')
+        .annotate(
+            total=Sum('hours'),
+            lecture_hours=Sum('hours', filter=Q(kind='lec')),
+            lecture_count=Count('pk', filter=Q(kind='lec')),
+        )
+    }
+    assigned = {teacher_id: [] for teacher_id in teacher_ids}
+    for teacher_id, discipline_id, discipline_name in LoadItem.objects.filter(
+        teacher_id__in=teacher_ids
+    ).values_list('teacher_id', 'discipline__id', 'discipline__name').distinct():
+        assigned[teacher_id].append((discipline_id, discipline_name))
+    result = {}
+    specialization_by_teacher = {teacher.pk: set() for teacher in teachers}
+    for teacher_id, discipline_id in Teacher.specialization.through.objects.filter(
+        teacher_id__in=teacher_ids
+    ).values_list('teacher_id', 'discipline_id'):
+        specialization_by_teacher[teacher_id].add(discipline_id)
+    for teacher in teachers:
+        totals = totals_by_teacher.get(teacher.pk, {})
+        specialized_ids = specialization_by_teacher[teacher.pk]
+        warnings = _teacher_warnings(
+            teacher,
+            totals.get('total') or Decimal('0'),
+            totals.get('lecture_hours') or Decimal('0'),
+            totals.get('lecture_count', 0) > 0,
+            [],
+        )
+        warnings.extend(
+            f'Дисциплина "{name}" вне специализации'
+            for discipline_id, name in assigned[teacher.pk]
+            if discipline_id not in specialized_ids
+        )
+        result[teacher.pk] = warnings
+    return result
 
 
 # ============ ОТЧЁТЫ ============
@@ -299,58 +352,55 @@ def report_for_teacher(teacher: Teacher, year: int = None) -> Dict[str, any]:
     if year is None:
         year = datetime.now().year
 
-    # Получить все элементы нагрузки преподавателя
-    load_items = LoadItem.objects.filter(teacher=teacher).select_related('discipline')
+    plan_totals = LoadItem.objects.filter(teacher=teacher).values(
+        'kind', 'discipline__semester'
+    ).annotate(total=Sum('hours'))
+    plans = {}
+    for row in plan_totals:
+        semester = row['discipline__semester']
+        semester_months = (9, 10, 11, 12, 1) if semester % 2 else range(2, 7)
+        monthly_hours = (row['total'] or Decimal('0')) / Decimal('5')
+        for month in semester_months:
+            plans[(month, row['kind'])] = plans.get((month, row['kind']), Decimal('0')) + monthly_hours
 
-    # Инициализировать отчёт по месяцам и видам работ
-    report = {
-        'teacher': teacher,
-        'months': {}
+    journal_totals = JournalEntry.objects.filter(
+        teacher=teacher,
+        date__year=year
+    ).values('load_item__kind', 'date__month').annotate(total=Sum('hours'))
+    journal_facts = {
+        (row['date__month'], row['load_item__kind']): row['total'] or Decimal('0')
+        for row in journal_totals
+    }
+    adjustment_totals = Adjustment.objects.filter(
+        teacher=teacher,
+        year=year
+    ).values('kind', 'month').annotate(total=Sum('hours_delta'))
+    adjustment_facts = {
+        (row['month'], row['kind']): row['total'] or Decimal('0')
+        for row in adjustment_totals
     }
 
-    for month in range(1, 13):
-        report['months'][month] = {}
-
-        # Все виды работ из нагрузки
-        kinds = load_items.values_list('kind', flat=True).distinct()
-        for kind in kinds:
-            # План: годовой объём делится на месяцы семестра (упрощённо - на 9 месяцев)
-            # или на месяцы, в которые есть занятия
-            plan_hours = load_items.filter(kind=kind).aggregate(total=Sum('hours'))['total'] or Decimal('0')
-            plan_hours = plan_hours / Decimal('9')  # упрощение: 9 месяцев в семестре
-
-            # Факт: записи в журнале за месяц + Adjustment
-            journal_hours = JournalEntry.objects.filter(
-                teacher=teacher,
-                load_item__kind=kind,
-                date__month=month,
-                date__year=year
-            ).aggregate(total=Sum('hours'))['total'] or Decimal('0')
-
-            adjustment_hours = Adjustment.objects.filter(
-                teacher=teacher,
-                kind=kind,
-                month=month,
-                year=year
-            ).aggregate(total=Sum('hours_delta'))['total'] or Decimal('0')
-
-            fact_hours = journal_hours + adjustment_hours
-            delta = fact_hours - plan_hours
-
-            # Статус
-            if delta < -Decimal('1'):  # допуск 1 час
-                status = 'under'
-            elif delta > Decimal('1'):
-                status = 'over'
-            else:
-                status = 'ok'
-
-            report['months'][month][kind] = {
-                'plan': plan_hours,
-                'fact': fact_hours,
-                'delta': delta,
-                'status': status
-            }
+    report = {'teacher': teacher, 'months': {month: {} for month in range(1, 13)}}
+    all_month_kinds = set(plans) | set(journal_facts) | set(adjustment_facts)
+    for month, kind in all_month_kinds:
+        plan_hours = plans.get((month, kind), Decimal('0'))
+        fact_hours = (
+            journal_facts.get((month, kind), Decimal('0'))
+            + adjustment_facts.get((month, kind), Decimal('0'))
+        )
+        delta = fact_hours - plan_hours
+        if delta < -Decimal('1'):
+            status = 'under'
+        elif delta > Decimal('1'):
+            status = 'over'
+        else:
+            status = 'ok'
+        report['months'][month][kind] = {
+            'plan': plan_hours,
+            'fact': fact_hours,
+            'delta': delta,
+            'status': status,
+        }
 
     return report
 
@@ -361,7 +411,9 @@ def report_for_department(department, year: int = None) -> Dict[str, any]:
 
     Аналогично report_for_teacher, но по всем преподавателям кафедры.
     """
-    teachers = Teacher.objects.filter(department=department)
+    teachers = Teacher.objects.filter(department=department).select_related('position').prefetch_related(
+        'specialization'
+    )
 
     return {
         'department': department,

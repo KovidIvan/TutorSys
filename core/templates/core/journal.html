@@ -53,7 +53,7 @@
                     <input type="hidden" name="action" value="add_entry">
                     <div class="mb-3">
                         <label class="form-label">Дисциплина и вид работы</label>
-                        <select name="load_item_id" class="form-select" required>
+                        <select name="load_item" class="form-select" required>
                             <option value="">Выберите...</option>
                             {% for item in load_items %}
                                 <option value="{{ item.id }}">{{ item.discipline.name }} - {{ item.get_kind_display }}</option>
@@ -70,7 +70,7 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Часы</label>
-                        <input type="number" name="hours" class="form-control" step="0.5" min="0" required>
+                        <input type="number" name="hours" class="form-control" step="0.01" min="0.01" max="24" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Тема занятия</label>
