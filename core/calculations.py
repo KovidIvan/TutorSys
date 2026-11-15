@@ -6,6 +6,7 @@
 
 from decimal import Decimal
 from typing import List, Dict, Tuple
+from django.db.models import Sum
 from .models import LoadItem, Teacher, CalcSettings, Discipline
 
 
@@ -72,23 +73,16 @@ def calc_department_load(discipline: Discipline, settings: CalcSettings) -> List
 
     # Экзамен или Зачёт (в зависимости от control_form)
     if discipline.control_form == 'exam':
-        # Экзамен: часы на студента + консультации
-        total_students = sum(g.students_count for g in groups)
-        exam_hours = Decimal(str(total_students)) * settings.exam_hours_per_student
-
-        # Консультации добавляются на каждую группу
+        # Экзамен и консультация — одна назначаемая единица нагрузки на группу.
         for group in groups:
             load_items.append({
                 'kind': 'exam',
                 'group': group,
                 'subgroup_no': None,
-                'hours': Decimal(str(group.students_count)) * settings.exam_hours_per_student,
-            })
-            load_items.append({
-                'kind': 'exam',  # консультации тоже kind='exam' для простоты
-                'group': group,
-                'subgroup_no': None,
-                'hours': settings.exam_consult_hours_per_group,
+                'hours': (
+                    Decimal(str(group.students_count)) * settings.exam_hours_per_student
+                    + settings.exam_consult_hours_per_group
+                ),
             })
 
     elif discipline.control_form == 'credit':
@@ -202,7 +196,6 @@ def recalculate_department(department, settings: CalcSettings):
 
 def teacher_total(teacher: Teacher) -> Decimal:
     """Сумма всех назначенных часов преподавателя."""
-    from django.db.models import Sum
     total = LoadItem.objects.filter(teacher=teacher).aggregate(total=Sum('hours'))['total']
     return total or Decimal('0')
 
@@ -292,32 +285,39 @@ def report_for_teacher(teacher: Teacher, year: int = None) -> Dict[str, any]:
         }
     }
     """
-    from django.db.models import Sum
     from datetime import datetime
     from .models import JournalEntry, Adjustment
 
     if year is None:
         year = datetime.now().year
 
-    # Получить все элементы нагрузки преподавателя
     load_items = LoadItem.objects.filter(teacher=teacher).select_related('discipline')
+    planned_by_kind_and_season = {}
+    planned_items = load_items.values(
+        'kind', 'discipline__semester'
+    ).annotate(total=Sum('hours'))
+    for item in planned_items:
+        season = 'fall' if item['discipline__semester'] % 2 else 'spring'
+        key = (item['kind'], season)
+        planned_by_kind_and_season[key] = (
+            planned_by_kind_and_season.get(key, Decimal('0')) + item['total']
+        )
 
-    # Инициализировать отчёт по месяцам и видам работ
-    report = {
-        'teacher': teacher,
-        'months': {}
+    kinds = {kind for kind, _ in planned_by_kind_and_season}
+    month_seasons = {
+        1: 'fall', 2: 'spring', 3: 'spring', 4: 'spring', 5: 'spring',
+        6: 'spring', 9: 'fall', 10: 'fall', 11: 'fall', 12: 'fall',
     }
+    report = {'teacher': teacher, 'months': {}}
 
     for month in range(1, 13):
         report['months'][month] = {}
-
-        # Все виды работ из нагрузки
-        kinds = load_items.values_list('kind', flat=True).distinct()
+        season = month_seasons.get(month)
         for kind in kinds:
-            # План: годовой объём делится на месяцы семестра (упрощённо - на 9 месяцев)
-            # или на месяцы, в которые есть занятия
-            plan_hours = load_items.filter(kind=kind).aggregate(total=Sum('hours'))['total'] or Decimal('0')
-            plan_hours = plan_hours / Decimal('9')  # упрощение: 9 месяцев в семестре
+            plan_hours = (
+                planned_by_kind_and_season.get((kind, season), Decimal('0')) / Decimal('5')
+                if season else Decimal('0')
+            )
 
             # Факт: записи в журнале за месяц + Adjustment
             journal_hours = JournalEntry.objects.filter(

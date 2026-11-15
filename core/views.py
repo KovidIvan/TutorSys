@@ -60,12 +60,28 @@ def check_teacher_status(teacher):
     total = teacher_total(teacher)
     warnings = check_teacher(teacher)
 
-    if len(warnings) > 1:
+    if total > Decimal(str(teacher.effective_max_hours)):
         return 'critical', warnings
-    elif len(warnings) == 1:
+    if warnings:
         return 'warning', warnings
-    else:
-        return 'ok', []
+    return 'ok', []
+
+
+def _teacher_panel_data(department):
+    if department is None:
+        return []
+
+    teachers = Teacher.objects.filter(department=department).select_related('position')
+    teachers_data = []
+    for teacher in teachers:
+        status, warnings = check_teacher_status(teacher)
+        teachers_data.append({
+            'teacher': teacher,
+            'total_hours': teacher_total(teacher),
+            'status': status,
+            'warnings': warnings,
+        })
+    return teachers_data
 
 
 # ============ ПАРАМЕТРЫ РАСЧЁТА ============
@@ -181,59 +197,55 @@ def distribution_view(request):
             'code': 403
         }, status=403)
 
-    # Получить кафедру пользователя
-    user_department = None
     try:
         user_department = request.user.teacher.department
-    except:
-        pass
+    except Teacher.DoesNotExist:
+        user_department = None
 
-    if user_department:
-        disciplines = Discipline.objects.filter(department=user_department).order_by('name')
-    else:
-        disciplines = Discipline.objects.none()
+    disciplines = (
+        Discipline.objects.filter(department=user_department).order_by('name')
+        if user_department else Discipline.objects.none()
+    )
+    load_items = (
+        LoadItem.objects.filter(discipline__department=user_department)
+        .select_related('discipline', 'group', 'teacher').order_by('discipline', 'kind')
+        if user_department else LoadItem.objects.none()
+    )
+    teachers = (
+        Teacher.objects.filter(department=user_department).select_related('position')
+        if user_department else Teacher.objects.none()
+    )
 
-    # Элементы нагрузки этой кафедры
-    load_items = LoadItem.objects.filter(
-        discipline__department=user_department
-    ).select_related('discipline', 'group', 'teacher').order_by('discipline', 'kind') if user_department else LoadItem.objects.none()
-
-    # Преподаватели кафедры
-    teachers = Teacher.objects.filter(
-        department=user_department
-    ).select_related('position') if user_department else Teacher.objects.none()
-
-    # Обновление назначения преподавателя
     if request.method == 'POST':
-        load_item_id = request.POST.get('load_item_id')
+        load_item = get_object_or_404(
+            LoadItem.objects.select_related('discipline'),
+            pk=request.POST.get('load_item_id')
+        )
+        if not user_department or load_item.discipline.department_id != user_department.pk:
+            return render(request, 'core/error.html', {
+                'message': 'Нельзя менять нагрузку другой кафедры.',
+                'code': 403,
+            }, status=403)
+
         teacher_id = request.POST.get('teacher_id')
+        teacher = get_object_or_404(Teacher, pk=teacher_id) if teacher_id else None
+        if teacher and teacher.department_id != user_department.pk:
+            return render(request, 'core/error.html', {
+                'message': 'Нельзя назначить преподавателя другой кафедры.',
+                'code': 403,
+            }, status=403)
 
-        try:
-            load_item = get_object_or_404(LoadItem, pk=load_item_id)
-            if teacher_id:
-                teacher = get_object_or_404(Teacher, pk=teacher_id)
-                load_item.teacher = teacher
-            else:
-                load_item.teacher = None
-            load_item.save()
+        load_item.teacher = teacher
+        load_item.save()
+        messages.success(request, 'Назначение обновлено.')
 
-            messages.success(request, 'Назначение обновлено.')
-        except Exception as e:
-            messages.error(request, f'Ошибка: {e}')
-
+        if request.htmx:
+            return render(request, 'core/_teacher_panel.html', {
+                'teachers_data': _teacher_panel_data(user_department),
+            })
         return redirect('core:distribution')
 
-    # Подготовить данные для панели преподавателей
-    teachers_data = []
-    for teacher in teachers:
-        total = teacher_total(teacher)
-        status, warnings = check_teacher_status(teacher)
-        teachers_data.append({
-            'teacher': teacher,
-            'total_hours': total,
-            'status': status,
-            'warnings': warnings,
-        })
+    teachers_data = _teacher_panel_data(user_department)
 
     context = {
         'disciplines': disciplines,
@@ -258,32 +270,14 @@ def load_teacher_panel_view(request):
             'code': 403
         }, status=403)
 
-    user_department = None
     try:
         user_department = request.user.teacher.department
-    except:
-        pass
+    except Teacher.DoesNotExist:
+        user_department = None
 
-    if not user_department:
-        return render(request, 'core/_teacher_panel.html', {'teachers_data': []})
-
-    teachers = Teacher.objects.filter(
-        department=user_department
-    ).select_related('position')
-
-    # Подготовить данные
-    teachers_data = []
-    for teacher in teachers:
-        total = teacher_total(teacher)
-        status, warnings = check_teacher_status(teacher)
-        teachers_data.append({
-            'teacher': teacher,
-            'total_hours': total,
-            'status': status,
-            'warnings': warnings,
-        })
-
-    return render(request, 'core/_teacher_panel.html', {'teachers_data': teachers_data})
+    return render(request, 'core/_teacher_panel.html', {
+        'teachers_data': _teacher_panel_data(user_department),
+    })
 
 
 # ============ НАГРУЗКА ПРЕПОДАВАТЕЛЯ ============

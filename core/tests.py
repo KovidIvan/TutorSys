@@ -9,7 +9,10 @@ from .models import (
     Specialty, Group, Curriculum, Discipline, Department, CalcSettings,
     PositionRule, Teacher, LoadItem, Adjustment, JournalEntry
 )
-from .calculations import calc_department_load, teacher_total, check_teacher, report_for_teacher
+from .calculations import (
+    calc_department_load, recalculate_department, teacher_total, check_teacher, report_for_teacher
+)
+from .views import check_teacher_status
 
 
 class CalcDepartmentLoadTestCase(TestCase):
@@ -212,11 +215,47 @@ class CalcDepartmentLoadTestCase(TestCase):
 
         load_items = calc_department_load(discipline, self.settings)
 
-        # Лекции + экзамен + консультация
-        # 15 + (30 × 0.35) + 2 = 24.5
+        # Лекции + экзамен + консультация: 15 + (30 × 0.35) + 2 = 27.5
         total_hours = sum(Decimal(str(item['hours'])) for item in load_items)
-        expected = Decimal('24.5')
+        expected = Decimal('27.5')
         self.assertAlmostEqual(float(total_hours), float(expected), places=2)
+
+    def test_recalculation_preserves_exam_hours_and_assignment(self):
+        discipline = Discipline.objects.create(
+            curriculum=self.curriculum,
+            department=self.department,
+            name='Экзаменационная дисциплина',
+            semester=1,
+            control_form='exam'
+        )
+        discipline.groups.add(self.group1, self.group2)
+        user = User.objects.create_user(username='assigned_teacher', password='pass')
+        teacher = Teacher.objects.create(
+            user=user,
+            full_name='Назначенный преподаватель',
+            department=self.department
+        )
+        existing = LoadItem.objects.create(
+            discipline=discipline,
+            kind='exam',
+            group=self.group1,
+            hours=Decimal('1'),
+            teacher=teacher
+        )
+
+        recalculate_department(self.department, self.settings)
+
+        existing.refresh_from_db()
+        self.assertEqual(existing.hours, Decimal('10.40'))
+        self.assertEqual(existing.teacher, teacher)
+        self.assertEqual(
+            LoadItem.objects.filter(discipline=discipline, kind='exam', group=self.group1).count(),
+            1
+        )
+        self.assertEqual(
+            LoadItem.objects.get(discipline=discipline, kind='exam', group=self.group2).hours,
+            Decimal('10.05')
+        )
 
 
 class TeacherCheckTestCase(TestCase):
@@ -309,6 +348,11 @@ class TeacherCheckTestCase(TestCase):
         total = teacher_total(self.teacher)
         self.assertEqual(total, Decimal('50'))
 
+    def test_check_teacher_with_lecture_capability(self):
+        warnings = check_teacher(self.teacher)
+
+        self.assertTrue(any('Лекций меньше нормы' in warning for warning in warnings))
+
     def test_check_teacher_below_minimum(self):
         """Тест предупреждения ниже минимума."""
         # Добавить только 100 часов (ниже минимума 840)
@@ -355,6 +399,24 @@ class TeacherCheckTestCase(TestCase):
 
         self.assertEqual(self.teacher.effective_min_hours, 500)
         self.assertEqual(self.teacher.effective_max_hours, 600)
+
+    def test_multiple_warnings_are_warning_not_critical(self):
+        status, warnings = check_teacher_status(self.teacher)
+
+        self.assertEqual(status, 'warning')
+        self.assertGreater(len(warnings), 1)
+
+    def test_above_maximum_is_critical(self):
+        LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='pract',
+            hours=Decimal('950'),
+            teacher=self.teacher
+        )
+
+        status, _ = check_teacher_status(self.teacher)
+
+        self.assertEqual(status, 'critical')
 
 
 class CalcSettingsTestCase(TestCase):
@@ -558,3 +620,137 @@ class ReportTestCase(TestCase):
         report = report_for_teacher(self.teacher, year)
 
         self.assertEqual(report['months'][1]['lec']['fact'], Decimal('5'))
+
+    def test_report_plan_is_allocated_to_semester_months(self):
+        report = report_for_teacher(self.teacher, 2026)
+
+        self.assertEqual(report['months'][9]['lec']['plan'], Decimal('18'))
+        self.assertEqual(report['months'][1]['lec']['plan'], Decimal('18'))
+        self.assertEqual(report['months'][2]['lec']['plan'], Decimal('0'))
+        self.assertEqual(report['months'][7]['lec']['plan'], Decimal('0'))
+
+    def test_journal_accepts_only_load_assigned_to_teacher(self):
+        from datetime import date
+
+        unassigned_item = LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='pract',
+            hours=Decimal('10')
+        )
+        self.client.force_login(self.user)
+        payload = {
+            'action': 'add_entry',
+            'date': date.today().isoformat(),
+            'hours': '2',
+            'topic': 'Проверка назначения',
+        }
+
+        response = self.client.post('/journal/', {
+            **payload,
+            'load_item_id': unassigned_item.pk,
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(JournalEntry.objects.filter(load_item=unassigned_item).exists())
+
+        response = self.client.post('/journal/', {
+            **payload,
+            'load_item_id': self.load_item.pk,
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(JournalEntry.objects.filter(load_item=self.load_item).exists())
+
+
+class DistributionViewTestCase(TestCase):
+    def setUp(self):
+        head_group, _ = AuthGroup.objects.get_or_create(name='head')
+        self.user = User.objects.create_user(username='department_head', password='pass')
+        self.user.groups.add(head_group)
+        self.department = Department.objects.create(name='Кафедра распределения')
+        Teacher.objects.create(
+            user=self.user,
+            full_name='Заведующий кафедрой',
+            department=self.department
+        )
+        self.target_user = User.objects.create_user(username='target_teacher', password='pass')
+        self.target_teacher = Teacher.objects.create(
+            user=self.target_user,
+            full_name='Преподаватель кафедры',
+            department=self.department
+        )
+        specialty = Specialty.objects.create(code='99.02.01', name='Тест', abbr='Т')
+        curriculum = Curriculum.objects.create(
+            specialty=specialty,
+            admission_year=2025,
+            study_form='full_time'
+        )
+        self.discipline = Discipline.objects.create(
+            curriculum=curriculum,
+            department=self.department,
+            name='Дисциплина кафедры',
+            semester=1
+        )
+        self.load_item = LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='pract',
+            hours=Decimal('12')
+        )
+        self.client.force_login(self.user)
+
+    def test_head_cannot_assign_load_from_another_department(self):
+        other_department = Department.objects.create(name='Чужая кафедра')
+        other_discipline = Discipline.objects.create(
+            curriculum=self.discipline.curriculum,
+            department=other_department,
+            name='Чужая дисциплина',
+            semester=1
+        )
+        foreign_item = LoadItem.objects.create(
+            discipline=other_discipline,
+            kind='pract',
+            hours=Decimal('8')
+        )
+
+        response = self.client.post('/distribution/', {
+            'load_item_id': foreign_item.pk,
+            'teacher_id': self.target_teacher.pk,
+        })
+
+        self.assertEqual(response.status_code, 403)
+        foreign_item.refresh_from_db()
+        self.assertIsNone(foreign_item.teacher)
+
+    def test_head_cannot_assign_teacher_from_another_department(self):
+        other_department = Department.objects.create(name='Другая кафедра')
+        other_user = User.objects.create_user(username='foreign_teacher', password='pass')
+        foreign_teacher = Teacher.objects.create(
+            user=other_user,
+            full_name='Чужой преподаватель',
+            department=other_department
+        )
+
+        response = self.client.post('/distribution/', {
+            'load_item_id': self.load_item.pk,
+            'teacher_id': foreign_teacher.pk,
+        })
+
+        self.assertEqual(response.status_code, 403)
+        self.load_item.refresh_from_db()
+        self.assertIsNone(self.load_item.teacher)
+
+    def test_htmx_assignment_returns_updated_teacher_panel(self):
+        LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='lec',
+            hours=Decimal('5'),
+            teacher=self.target_teacher
+        )
+
+        response = self.client.post(
+            '/distribution/',
+            {'load_item_id': self.load_item.pk, 'teacher_id': self.target_teacher.pk},
+            HTTP_HX_REQUEST='true'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'core/_teacher_panel.html')
+        self.assertContains(response, '17')
