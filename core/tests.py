@@ -1,0 +1,560 @@
+"""
+Тесты расчётов и формул нагрузки.
+"""
+
+from django.test import TestCase
+from django.contrib.auth.models import User, Group as AuthGroup
+from decimal import Decimal
+from .models import (
+    Specialty, Group, Curriculum, Discipline, Department, CalcSettings,
+    PositionRule, Teacher, LoadItem, Adjustment, JournalEntry
+)
+from .calculations import calc_department_load, teacher_total, check_teacher, report_for_teacher
+
+
+class CalcDepartmentLoadTestCase(TestCase):
+    """Тесты расчёта нагрузки по дисциплине."""
+
+    def setUp(self):
+        """Подготовить данные для тестов."""
+        # Специальность
+        self.specialty = Specialty.objects.create(
+            code='09.03.03',
+            name='Прикладная информатика',
+            abbr='ПИ'
+        )
+
+        # Кафедра
+        self.department = Department.objects.create(
+            name='Кафедра ИС'
+        )
+
+        # Учебный план
+        self.curriculum = Curriculum.objects.create(
+            specialty=self.specialty,
+            admission_year=2023,
+            study_form='full_time'
+        )
+
+        # Группы: 2 группы по 24 и 23 студента
+        self.group1 = Group.objects.create(
+            name='ПИ-22-1',
+            specialty=self.specialty,
+            course=2,
+            study_form='full_time',
+            students_count=24,
+            subgroups_count=2
+        )
+
+        self.group2 = Group.objects.create(
+            name='ПИ-22-2',
+            specialty=self.specialty,
+            course=2,
+            study_form='full_time',
+            students_count=23,
+            subgroups_count=2
+        )
+
+        # Параметры расчёта (значения по умолчанию из CalcSettings)
+        self.settings = CalcSettings.get()
+
+    def test_calc_discipline_with_exam_default_params(self):
+        """
+        Контрольный тест: дисциплина с экзаменом.
+        30 ч лекций, 20 практических, 40 лабораторных, 2 контрольные, УСР 18
+        Ожидаемый итог: 277.95 часов
+
+        Расчёт:
+        - Лекции: 30 × 1 = 30
+        - Практики: 20 × 2 групп = 40
+        - Лабораторные: 40 × 4 подгруппы (2 группы × 2 подгруппы) = 160
+        - Экзамен: (24 + 23) × 0.35 = 16.45
+        - Консультации к экзамену: 2 × 2 групп = 4
+        - Контроль УСР: 2 × 2 групп = 4
+        - КР: (24 + 23) × 0.25 × 2 = 23.5
+
+        Итого: 30 + 40 + 160 + 16.45 + 4 + 4 + 23.5 = 277.95
+        """
+        discipline = Discipline.objects.create(
+            curriculum=self.curriculum,
+            department=self.department,
+            name='Основы программирования',
+            semester=1,
+            control_form='exam',
+            hours_lec=Decimal('30'),
+            hours_pract=Decimal('20'),
+            hours_lab=Decimal('40'),
+            hours_usr=Decimal('18'),
+            control_works=2,
+            credits=Decimal('5')
+        )
+        discipline.groups.add(self.group1, self.group2)
+
+        # Рассчитать нагрузку
+        load_items = calc_department_load(discipline, self.settings)
+
+        # Вычислить сумму часов
+        total_hours = sum(Decimal(str(item['hours'])) for item in load_items)
+
+        # Проверить результат (допуск 0.01)
+        expected = Decimal('277.95')
+        self.assertAlmostEqual(float(total_hours), float(expected), places=2)
+
+    def test_calc_param_change_exam_hours_per_student(self):
+        """
+        Тест смены параметра: при изменении exam_hours_per_student на 0.5
+        часы экзамена должны суммироваться иначе.
+
+        С новым параметром:
+        - Экзамен: (24 + 23) × 0.5 = 23.5 (было 16.45)
+        - Остальное то же
+
+        Итого: 30 + 40 + 160 + 23.5 + 4 + 4 + 23.5 = 285.0
+        """
+        # Изменить параметр
+        self.settings.exam_hours_per_student = Decimal('0.5')
+        self.settings.save()
+
+        discipline = Discipline.objects.create(
+            curriculum=self.curriculum,
+            department=self.department,
+            name='Основы программирования',
+            semester=1,
+            control_form='exam',
+            hours_lec=Decimal('30'),
+            hours_pract=Decimal('20'),
+            hours_lab=Decimal('40'),
+            hours_usr=Decimal('18'),
+            control_works=2,
+            credits=Decimal('5')
+        )
+        discipline.groups.add(self.group1, self.group2)
+
+        load_items = calc_department_load(discipline, self.settings)
+        total_hours = sum(Decimal(str(item['hours'])) for item in load_items)
+
+        expected = Decimal('285.0')
+        self.assertAlmostEqual(float(total_hours), float(expected), places=2)
+
+    def test_calc_discipline_with_credit(self):
+        """Тест дисциплины с зачётом вместо экзамена."""
+        discipline = Discipline.objects.create(
+            curriculum=self.curriculum,
+            department=self.department,
+            name='Математика',
+            semester=1,
+            control_form='credit',
+            hours_lec=Decimal('20'),
+            hours_pract=Decimal('10'),
+            hours_lab=Decimal('0'),
+            hours_usr=Decimal('0'),
+            control_works=0,
+            credits=Decimal('3')
+        )
+        discipline.groups.add(self.group1, self.group2)
+
+        load_items = calc_department_load(discipline, self.settings)
+        total_hours = sum(Decimal(str(item['hours'])) for item in load_items)
+
+        # Лекции + практики + зачёты
+        # 20 + (10 × 2) + (47 × 0.25) = 20 + 20 + 11.75 = 51.75
+        expected = Decimal('51.75')
+        self.assertAlmostEqual(float(total_hours), float(expected), places=2)
+
+    def test_calc_discipline_without_usr_control(self):
+        """УСР контроль не должен добавляться, если hours_usr = 0."""
+        discipline = Discipline.objects.create(
+            curriculum=self.curriculum,
+            department=self.department,
+            name='Логика',
+            semester=1,
+            control_form='credit',
+            hours_lec=Decimal('15'),
+            hours_pract=Decimal('0'),
+            hours_lab=Decimal('0'),
+            hours_usr=Decimal('0'),  # нет УСР
+            control_works=0,
+            credits=Decimal('2')
+        )
+        discipline.groups.add(self.group1, self.group2)
+
+        load_items = calc_department_load(discipline, self.settings)
+
+        # Проверить, что нет элементов kind='usr'
+        usr_items = [item for item in load_items if item['kind'] == 'usr']
+        self.assertEqual(len(usr_items), 0)
+
+    def test_calc_single_group_discipline(self):
+        """Тест дисциплины с одной группой."""
+        single_group = Group.objects.create(
+            name='МН-11',
+            specialty=self.specialty,
+            course=1,
+            study_form='full_time',
+            students_count=30,
+            subgroups_count=2
+        )
+
+        discipline = Discipline.objects.create(
+            curriculum=self.curriculum,
+            department=self.department,
+            name='Философия',
+            semester=1,
+            control_form='exam',
+            hours_lec=Decimal('15'),
+            hours_pract=Decimal('0'),
+            hours_lab=Decimal('0'),
+            hours_usr=Decimal('0'),
+            control_works=0,
+            credits=Decimal('2')
+        )
+        discipline.groups.add(single_group)
+
+        load_items = calc_department_load(discipline, self.settings)
+
+        # Лекции + экзамен + консультация
+        # 15 + (30 × 0.35) + 2 = 24.5
+        total_hours = sum(Decimal(str(item['hours'])) for item in load_items)
+        expected = Decimal('24.5')
+        self.assertAlmostEqual(float(total_hours), float(expected), places=2)
+
+
+class TeacherCheckTestCase(TestCase):
+    """Тесты проверки нагрузки преподавателя."""
+
+    def setUp(self):
+        """Подготовить учителя с нагрузкой."""
+        # Пользователь Django
+        self.user = User.objects.create_user(
+            username='prof_ivanov',
+            password='testpass123'
+        )
+
+        # Должность
+        self.position_docent = PositionRule.objects.create(
+            position='Доцент',
+            min_hours=840,
+            max_hours=900,
+            min_lecture_hours=200,
+            can_lecture=True
+        )
+
+        # Кафедра
+        self.department = Department.objects.create(name='Кафедра ИС')
+
+        # Преподаватель
+        self.teacher = Teacher.objects.create(
+            user=self.user,
+            full_name='Иванов И.И.',
+            department=self.department,
+            position=self.position_docent,
+            degree='candidate',
+            rank='доцент',
+            rate=Decimal('1.0')
+        )
+
+        # Специальность и программа
+        self.specialty = Specialty.objects.create(
+            code='09.03.03',
+            name='Прикладная информатика',
+            abbr='ПИ'
+        )
+
+        self.curriculum = Curriculum.objects.create(
+            specialty=self.specialty,
+            admission_year=2023,
+            study_form='full_time'
+        )
+
+        # Дисциплина
+        self.discipline = Discipline.objects.create(
+            curriculum=self.curriculum,
+            department=self.department,
+            name='Программирование',
+            semester=1,
+            control_form='exam',
+            hours_lec=Decimal('30'),
+            hours_pract=Decimal('20'),
+            hours_lab=Decimal('0'),
+            hours_usr=Decimal('0'),
+            control_works=0,
+            credits=Decimal('4')
+        )
+
+    def test_teacher_total_no_load(self):
+        """Преподаватель без нагрузки должен иметь 0 часов."""
+        total = teacher_total(self.teacher)
+        self.assertEqual(total, Decimal('0'))
+
+    def test_teacher_total_with_load(self):
+        """Сумма часов преподавателя с нагрузкой."""
+        LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='lec',
+            group=None,
+            subgroup_no=None,
+            hours=Decimal('30'),
+            teacher=self.teacher
+        )
+
+        LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='pract',
+            group=None,
+            subgroup_no=None,
+            hours=Decimal('20'),
+            teacher=self.teacher
+        )
+
+        total = teacher_total(self.teacher)
+        self.assertEqual(total, Decimal('50'))
+
+    def test_check_teacher_below_minimum(self):
+        """Тест предупреждения ниже минимума."""
+        # Добавить только 100 часов (ниже минимума 840)
+        LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='lec',
+            group=None,
+            subgroup_no=None,
+            hours=Decimal('100'),
+            teacher=self.teacher
+        )
+
+        warnings = check_teacher(self.teacher)
+        self.assertTrue(any('минимума' in w for w in warnings))
+
+    def test_check_teacher_above_maximum(self):
+        """Тест предупреждения выше максимума."""
+        # Добавить 950 часов (выше максимума 900)
+        LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='lec',
+            group=None,
+            subgroup_no=None,
+            hours=Decimal('950'),
+            teacher=self.teacher
+        )
+
+        warnings = check_teacher(self.teacher)
+        self.assertTrue(any('максимума' in w for w in warnings))
+
+    def test_effective_min_max_with_rate_half(self):
+        """При ставке 0.5 эффективные min/max должны быть вполовину."""
+        self.teacher.rate = Decimal('0.5')
+        self.teacher.save()
+
+        self.assertEqual(self.teacher.effective_min_hours, 420)
+        self.assertEqual(self.teacher.effective_max_hours, 450)
+
+    def test_effective_min_max_override(self):
+        """Переопределённые минимум/максимум должны приоритизироваться."""
+        self.teacher.override_min_hours = 500
+        self.teacher.override_max_hours = 600
+        self.teacher.save()
+
+        self.assertEqual(self.teacher.effective_min_hours, 500)
+        self.assertEqual(self.teacher.effective_max_hours, 600)
+
+
+class CalcSettingsTestCase(TestCase):
+    """Тесты синглтона CalcSettings."""
+
+    def test_calcsettings_get_creates_default(self):
+        """CalcSettings.get() должен создать запись со значениями по умолчанию."""
+        # Убрать все записи
+        CalcSettings.objects.all().delete()
+
+        # Вызвать get()
+        settings = CalcSettings.get()
+
+        # Проверить, что создана ровно одна запись
+        self.assertEqual(CalcSettings.objects.count(), 1)
+        self.assertEqual(settings.exam_hours_per_student, Decimal('0.35'))
+        self.assertEqual(settings.subgroups_per_group, 2)
+
+    def test_calcsettings_get_returns_existing(self):
+        """CalcSettings.get() должен вернуть существующую запись."""
+        CalcSettings.objects.all().delete()
+
+        # Создать с нестандартным значением
+        CalcSettings.objects.create(
+            exam_hours_per_student=Decimal('0.5')
+        )
+
+        # Вызвать get()
+        settings = CalcSettings.get()
+
+        # Должна остаться одна запись с нашим значением
+        self.assertEqual(CalcSettings.objects.count(), 1)
+        self.assertEqual(settings.exam_hours_per_student, Decimal('0.5'))
+
+
+class ReportTestCase(TestCase):
+    def setUp(self):
+        self.teacher_group, _ = AuthGroup.objects.get_or_create(name='teacher')
+        self.user = User.objects.create_user(username='report_teacher', password='pass')
+        self.user.groups.add(self.teacher_group)
+        self.department = Department.objects.create(name='Кафедра отчётов')
+        self.teacher = Teacher.objects.create(
+            user=self.user,
+            full_name='Преподаватель отчётов',
+            department=self.department
+        )
+        specialty = Specialty.objects.create(code='99.01.01', name='Тест', abbr='Т')
+        curriculum = Curriculum.objects.create(
+            specialty=specialty,
+            admission_year=2025,
+            study_form='full_time'
+        )
+        self.discipline = Discipline.objects.create(
+            curriculum=curriculum,
+            department=self.department,
+            name='Тестовая дисциплина',
+            semester=1,
+            control_form='exam'
+        )
+        self.load_item = LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='lec',
+            hours=Decimal('90'),
+            teacher=self.teacher
+        )
+
+    def test_teacher_can_view_own_report(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get('/report/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.teacher.full_name)
+
+    def test_teacher_workload_export_is_valid_xlsx(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        self.client.force_login(self.user)
+
+        response = self.client.get('/export/workload/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', response['Content-Type'])
+        workbook = load_workbook(BytesIO(response.content), read_only=True)
+        worksheet = workbook.active
+        self.assertEqual(worksheet['A1'].value, 'Дисциплина')
+        self.assertEqual(worksheet['A2'].value, self.discipline.name)
+        workbook.close()
+
+    def test_teacher_cannot_export_department_load(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get('/export/department-load/')
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_user_without_report_role_is_forbidden(self):
+        user = User.objects.create_user(username='no_report_role', password='pass')
+        self.client.force_login(user)
+
+        response = self.client.get('/report/')
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_head_cannot_select_teacher_outside_department(self):
+        head_user = User.objects.create_user(username='report_head', password='pass')
+        head_user.groups.add(AuthGroup.objects.create(name='head'))
+        Teacher.objects.create(
+            user=head_user,
+            full_name='Заведующий',
+            department=self.department
+        )
+        other_department = Department.objects.create(name='Другая кафедра')
+        outsider_user = User.objects.create_user(username='outsider', password='pass')
+        outsider = Teacher.objects.create(
+            user=outsider_user,
+            full_name='Чужой преподаватель',
+            department=other_department
+        )
+        self.client.force_login(head_user)
+
+        response = self.client.get('/report/', {'teacher_id': outsider.pk})
+
+        self.assertEqual(response.status_code, 404)
+        response = self.client.get('/report/', {'teacher_id': 'invalid'})
+        self.assertEqual(response.status_code, 404)
+
+    def test_teacher_can_add_adjustment_for_assigned_load(self):
+        from datetime import date
+
+        self.client.force_login(self.user)
+        year = date.today().year
+
+        response = self.client.post('/report/', {
+            'action': 'add_adjustment',
+            'year': year,
+            'discipline_id': self.discipline.pk,
+            'kind': 'lec',
+            'month': 1,
+            'hours_delta': '2.5',
+            'reason': 'Замена занятия'
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(Adjustment.objects.filter(
+            teacher=self.teacher,
+            discipline=self.discipline,
+            year=year,
+            month=1,
+            hours_delta=Decimal('2.5')
+        ).exists())
+
+    def test_teacher_cannot_adjust_unassigned_discipline(self):
+        from datetime import date
+
+        other_discipline = Discipline.objects.create(
+            curriculum=self.discipline.curriculum,
+            department=self.department,
+            name='Не назначенная дисциплина',
+            semester=1,
+            control_form='exam'
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post('/report/', {
+            'action': 'add_adjustment',
+            'year': date.today().year,
+            'discipline_id': other_discipline.pk,
+            'kind': 'lec',
+            'month': 1,
+            'hours_delta': '2',
+            'reason': 'Недопустимая корректировка'
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Adjustment.objects.filter(discipline=other_discipline).exists())
+
+    def test_report_filters_adjustments_by_year(self):
+        from datetime import date
+
+        year = date.today().year
+        JournalEntry.objects.create(
+            teacher=self.teacher,
+            load_item=self.load_item,
+            date=date(year, 1, 15),
+            hours=Decimal('2'),
+            topic='Проведённое занятие'
+        )
+        for adjustment_year, hours in ((year - 1, '100'), (year, '3')):
+            Adjustment.objects.create(
+                teacher=self.teacher,
+                discipline=self.discipline,
+                kind='lec',
+                month=1,
+                year=adjustment_year,
+                hours_delta=Decimal(hours),
+                reason='Тестовая корректировка'
+            )
+
+        report = report_for_teacher(self.teacher, year)
+
+        self.assertEqual(report['months'][1]['lec']['fact'], Decimal('5'))

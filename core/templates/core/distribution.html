@@ -1,0 +1,62 @@
+{% extends 'core/base.html' %}
+{% block title %}Распределение нагрузки{% endblock %}
+{% block content %}
+<div class="row">
+    <div class="col-md-7">
+        <div class="card mb-4">
+            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h4 class="mb-0">📚 Элементы нагрузки кафедры</h4>
+                <div class="d-flex gap-2">
+                    <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'department-load' %}">📥 Нагрузка Excel</a>
+                    <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'teachers' %}">📥 Преподаватели Excel</a>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if load_items %}
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Дисциплина</th>
+                                    <th>Вид</th>
+                                    <th>Группа</th>
+                                    <th>Часы</th>
+                                    <th>Преподаватель</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in load_items %}
+                                    <tr>
+                                        <td><small>{{ item.discipline.name }}</small></td>
+                                        <td><span class="badge bg-info">{{ item.get_kind_display }}</span></td>
+                                        <td><small>{% if item.group %}{{ item.group.name }}{% else %}Поток{% endif %}</small></td>
+                                        <td><strong>{{ item.hours }}</strong></td>
+                                        <td>
+                                            <form method="post" style="display: inline;">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="load_item_id" value="{{ item.id }}">
+                                                <select name="teacher_id" class="form-select form-select-sm" hx-post="{% url 'core:distribution' %}" hx-target="#teacher-panel" hx-swap="innerHTML">
+                                                    <option value="">-</option>
+                                                    {% for t in teachers %}<option value="{{ t.id }}" {% if item.teacher == t %}selected{% endif %}>{{ t.full_name }}</option>{% endfor %}
+                                                </select>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}<p class="text-muted">Нет элементов</p>{% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-5">
+        <div class="card mb-4">
+            <div class="card-header"><h4 class="mb-0">Преподаватели</h4></div>
+            <div class="card-body" id="teacher-panel">
+                {% include 'core/_teacher_panel.html' %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

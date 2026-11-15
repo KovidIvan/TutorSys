@@ -1,0 +1,154 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Отчёт план/факт — {{ teacher.full_name }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <h1 class="h3 mb-1">Отчёт план/факт</h1>
+            <div class="text-muted">{{ teacher.full_name }} · {{ teacher.department.name }}</div>
+        </div>
+        <form method="get" class="d-flex gap-2 align-items-center">
+            {% if is_head %}
+                <label for="teacher_id" class="form-label mb-0">Преподаватель</label>
+                <select id="teacher_id" name="teacher_id" class="form-select">
+                    {% for item in teachers %}
+                        <option value="{{ item.pk }}" {% if item.pk == teacher.pk %}selected{% endif %}>{{ item.full_name }}</option>
+                    {% endfor %}
+                </select>
+            {% endif %}
+            <label for="year" class="form-label mb-0">Год</label>
+            <select id="year" name="year" class="form-select">
+                {% for option_year in years %}
+                    <option value="{{ option_year }}" {% if option_year == year %}selected{% endif %}>{{ option_year }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-primary">Показать</button>
+        </form>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center gap-2">
+            <span>План и факт по месяцам · {{ year }}</span>
+            <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'report' %}?year={{ year }}{% if is_head %}&amp;teacher_id={{ teacher.pk }}{% endif %}">📥 Скачать Excel</a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-striped table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Месяц</th>
+                        <th>Вид работы</th>
+                        <th class="text-end">План, ч</th>
+                        <th class="text-end">Факт, ч</th>
+                        <th class="text-end">Отклонение, ч</th>
+                        <th>Причины</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if has_load %}
+                        {% for month in months %}
+                            {% for row in month.rows %}
+                                <tr class="{% if row.values.status == 'under' %}table-danger{% elif row.values.status == 'over' %}table-success{% endif %}">
+                                    <td>{{ month.name }}</td>
+                                    <td>{{ row.kind_display }}</td>
+                                    <td class="text-end">{{ row.values.plan|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.values.fact|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.values.delta|floatformat:2 }}</td>
+                                    <td>
+                                        {% if row.adjustments %}
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#reasons-{{ month.number }}-{{ row.kind }}">
+                                                Просмотреть ({{ row.adjustments|length }})
+                                            </button>
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        {% endfor %}
+                    {% else %}
+                        <tr><td colspan="6" class="text-center text-muted py-4">Данных о нагрузке пока нет.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer small text-muted">Красный — факт ниже плана более чем на 1 час; зелёный — факт выше плана более чем на 1 час.</div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header">Добавить корректировку</div>
+        <div class="card-body">
+            {% if disciplines %}
+                <form method="post" class="row g-3">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="add_adjustment">
+                    <input type="hidden" name="year" value="{{ year }}">
+                    {% if is_head %}<input type="hidden" name="teacher_id" value="{{ teacher.pk }}">{% endif %}
+                    <div class="col-md-4">
+                        <label for="discipline_id" class="form-label">Дисциплина</label>
+                        <select id="discipline_id" name="discipline_id" class="form-select" required>
+                            {% for discipline in disciplines %}<option value="{{ discipline.pk }}">{{ discipline.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="kind" class="form-label">Вид работы</label>
+                        <select id="kind" name="kind" class="form-select" required>
+                            {% for value, label in kind_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="month" class="form-label">Месяц</label>
+                        <select id="month" name="month" class="form-select" required>
+                            {% for month in months %}<option value="{{ month.number }}">{{ month.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="hours_delta" class="form-label">Часы (+/−)</label>
+                        <input id="hours_delta" name="hours_delta" type="number" step="0.01" class="form-control" required>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <div class="form-check mb-2">
+                            <input id="planned" name="planned" type="checkbox" class="form-check-input">
+                            <label for="planned" class="form-check-label">Плановая</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label for="reason" class="form-label">Причина корректировки</label>
+                        <textarea id="reason" name="reason" class="form-control" rows="2" required></textarea>
+                    </div>
+                    <div class="col-12"><button type="submit" class="btn btn-primary">Сохранить корректировку</button></div>
+                </form>
+            {% else %}
+                <p class="text-muted mb-0">Нет назначенной нагрузки, для которой можно добавить корректировку.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% for month in months %}
+    {% for row in month.rows %}
+        {% if row.adjustments %}
+            <div class="modal fade" id="reasons-{{ month.number }}-{{ row.kind }}" tabindex="-1" aria-labelledby="reasons-title-{{ month.number }}-{{ row.kind }}" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2 class="modal-title fs-5" id="reasons-title-{{ month.number }}-{{ row.kind }}">Причины корректировок: {{ month.name }}, {{ row.kind_display }}</h2>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                        </div>
+                        <div class="modal-body">
+                            {% for adjustment in row.adjustments %}
+                                <div class="border-bottom pb-2 mb-2">
+                                    <div class="fw-semibold">{{ adjustment.discipline.name }} · {{ adjustment.hours_delta|floatformat:2 }} ч</div>
+                                    <div>{{ adjustment.reason }}</div>
+                                    {% if adjustment.planned %}<span class="badge text-bg-info">Плановая</span>{% else %}<span class="badge text-bg-secondary">Внеплановая</span>{% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% endfor %}
+{% endfor %}
+{% endblock %}

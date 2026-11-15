@@ -1,0 +1,62 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Моя нагрузка{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4 class="mb-0">📖 Моя учебная нагрузка</h4>
+            </div>
+            <div class="card-body">
+                {% if load_by_discipline %}
+                    {% for discipline, items in load_by_discipline.items %}
+                        <div class="mb-4">
+                            <h5 class="border-bottom pb-2">{{ discipline.name }}</h5>
+                            <table class="table table-sm">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Вид работы</th>
+                                        <th>Группа</th>
+                                        <th>Часы</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in items %}
+                                        <tr>
+                                            <td>{{ item.get_kind_display }}</td>
+                                            <td>{% if item.group %}{{ item.group.name }}{% if item.subgroup_no %} (подгр. {{ item.subgroup_no }}){% endif %}{% else %}Поток{% endif %}</td>
+                                            <td><strong>{{ item.hours }}</strong></td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">👋 Нет назначенной нагрузки</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">📊 Итого</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <strong>Всего часов:</strong>
+                    <div class="display-4">{{ total_hours }}</div>
+                </div>
+                <div class="alert alert-info">
+                    <strong>Норма:</strong> {{ teacher.effective_min_hours }}–{{ teacher.effective_max_hours }} часов
+                </div>
+                <a class="btn btn-primary w-100" href="{% url 'core:export_excel' 'workload' %}">📥 Скачать Excel</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,203 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Параметры расчёта нагрузки{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4 class="mb-0">⚙️ Параметры расчёта нагрузки</h4>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="update_settings">
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="exam_hours_per_student" class="form-label">
+                                Часы экзамена на студента
+                                <small class="text-muted">(часы)</small>
+                            </label>
+                            <input type="number" step="0.01" class="form-control" id="exam_hours_per_student"
+                                   name="exam_hours_per_student" value="{{ settings.exam_hours_per_student }}" required>
+                            <small class="form-text text-muted">Время на одного студента при сдаче экзамена</small>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="exam_consult_hours_per_group" class="form-label">
+                                Консультация к экзамену на группу
+                                <small class="text-muted">(часы)</small>
+                            </label>
+                            <input type="number" step="0.01" class="form-control" id="exam_consult_hours_per_group"
+                                   name="exam_consult_hours_per_group" value="{{ settings.exam_consult_hours_per_group }}" required>
+                            <small class="form-text text-muted">Одна консультация на всю группу</small>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="credit_hours_per_student" class="form-label">
+                                Часы зачёта на студента
+                                <small class="text-muted">(часы)</small>
+                            </label>
+                            <input type="number" step="0.01" class="form-control" id="credit_hours_per_student"
+                                   name="credit_hours_per_student" value="{{ settings.credit_hours_per_student }}" required>
+                            <small class="form-text text-muted">Время на одного студента при сдаче зачёта</small>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="usr_control_hours_per_group" class="form-label">
+                                Контроль УСР на группу
+                                <small class="text-muted">(часы)</small>
+                            </label>
+                            <input type="number" step="0.01" class="form-control" id="usr_control_hours_per_group"
+                                   name="usr_control_hours_per_group" value="{{ settings.usr_control_hours_per_group }}" required>
+                            <small class="form-text text-muted">Проверка самостоятельной работы студентов</small>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="kr_hours_per_student" class="form-label">
+                                Часы на контрольную работу на студента
+                                <small class="text-muted">(часы)</small>
+                            </label>
+                            <input type="number" step="0.01" class="form-control" id="kr_hours_per_student"
+                                   name="kr_hours_per_student" value="{{ settings.kr_hours_per_student }}" required>
+                            <small class="form-text text-muted">Проверка одной контрольной работы</small>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="subgroups_per_group" class="form-label">
+                                Подгруппы на группу по умолчанию
+                                <small class="text-muted">(шт.)</small>
+                            </label>
+                            <input type="number" min="1" class="form-control" id="subgroups_per_group"
+                                   name="subgroups_per_group" value="{{ settings.subgroups_per_group }}" required>
+                            <small class="form-text text-muted">Используется, если в группе не указано явно</small>
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            💾 Сохранить параметры
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Кнопка пересчёта -->
+        <div class="card bg-light mb-4">
+            <div class="card-body">
+                <h5>⚠️ Внимание: параметры изменены</h5>
+                <p class="mb-3">После изменения параметров нагрузка кафедр рассчитана по старым нормам.</p>
+                <form method="post" style="display: inline;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="recalculate_all">
+                    <button type="submit" class="btn btn-warning btn-lg">
+                        🔄 Пересчитать нагрузку всех кафедр
+                    </button>
+                </form>
+                <p class="mt-3 mb-0 text-muted">
+                    <small>✓ Назначенные преподаватели будут сохранены<br>
+                    ✓ Изменены только часы элементов нагрузки</small>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Правая колонка: нормы по должностям -->
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">👔 Нормы по должностям</h5>
+            </div>
+            <div class="card-body">
+                <div style="max-height: 600px; overflow-y: auto;">
+                    {% for rule in position_rules %}
+                        <div class="card mb-3 border-light">
+                            <div class="card-body p-2">
+                                <form method="post" class="position-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="update_position">
+                                    <input type="hidden" name="position_id" value="{{ rule.id }}">
+
+                                    <div class="position-title mb-2">
+                                        <strong>{{ rule.position }}</strong>
+                                        {% if rule.can_lecture %}<span class="badge bg-success ms-2">Лекции</span>{% else %}<span class="badge bg-secondary ms-2">Практика</span>{% endif %}
+                                    </div>
+
+                                    <div class="mb-2">
+                                        <label class="form-label form-label-sm">Min–Max часов/год</label>
+                                        <div class="input-group input-group-sm">
+                                            <input type="number" class="form-control" name="min_hours" value="{{ rule.min_hours }}" required>
+                                            <span class="input-group-text">–</span>
+                                            <input type="number" class="form-control" name="max_hours" value="{{ rule.max_hours }}" required>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-2">
+                                        <label class="form-label form-label-sm">Min лекций/год</label>
+                                        <input type="number" class="form-control form-control-sm" name="min_lecture_hours" value="{{ rule.min_lecture_hours }}" required>
+                                    </div>
+
+                                    <div class="form-check mb-2">
+                                        <input type="checkbox" class="form-check-input" id="can_lecture_{{ rule.id }}"
+                                               name="can_lecture" {% if rule.can_lecture %}checked{% endif %}>
+                                        <label class="form-check-label form-check-label-sm" for="can_lecture_{{ rule.id }}">
+                                            Может читать лекции
+                                        </label>
+                                    </div>
+
+                                    <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+                                        Сохранить
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    {% empty %}
+                        <p class="text-muted">Нет должностей</p>
+                    {% endfor %}
+                </div>
+
+                <!-- Форма добавления новой должности -->
+                <form method="post" class="mt-3 pt-3 border-top">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="add_position">
+
+                    <h6>➕ Новая должность</h6>
+
+                    <div class="mb-2">
+                        <input type="text" class="form-control form-control-sm" name="new_position_name"
+                               placeholder="Название" required>
+                    </div>
+
+                    <div class="input-group input-group-sm mb-2">
+                        <input type="number" class="form-control" name="new_min_hours" value="840" placeholder="Min">
+                        <span class="input-group-text">–</span>
+                        <input type="number" class="form-control" name="new_max_hours" value="900" placeholder="Max">
+                    </div>
+
+                    <div class="mb-2">
+                        <input type="number" class="form-control form-control-sm" name="new_min_lecture_hours" value="200" placeholder="Min лекций">
+                    </div>
+
+                    <div class="form-check mb-2">
+                        <input type="checkbox" class="form-check-input" id="new_can_lecture" name="new_can_lecture" checked>
+                        <label class="form-check-label form-check-label-sm" for="new_can_lecture">
+                            Может читать лекции
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn btn-sm btn-success w-100">
+                        Добавить должность
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

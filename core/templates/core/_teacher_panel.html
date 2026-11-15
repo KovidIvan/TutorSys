@@ -1,0 +1,49 @@
+<!-- Партиальный шаблон панели преподавателей (для HTMX обновления) -->
+
+{% if teachers_data %}
+    <div style="max-height: 600px; overflow-y: auto;">
+        {% for item in teachers_data %}
+            {% with teacher=item.teacher status=item.status total_hours=item.total_hours warnings=item.warnings %}
+                <div class="card mb-3 border-light">
+                    <div class="card-body p-2">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <strong>{{ teacher.full_name }}</strong>
+                                <br>
+                                <small class="text-muted">{{ teacher.position.position }} ({{ teacher.rate }} ставка)</small>
+                                <br>
+
+                                <!-- Иконка статуса -->
+                                {% if status == 'ok' %}
+                                    <span class="badge bg-success">✓ В норме</span>
+                                {% elif status == 'warning' %}
+                                    <span class="badge bg-warning">⚠ Предупреждение</span>
+                                {% else %}
+                                    <span class="badge bg-danger">✗ Критично</span>
+                                {% endif %}
+                            </div>
+                            <div class="text-end">
+                                <div class="display-6" style="color: 
+                                    {% if status == 'ok' %}#28a745{% elif status == 'warning' %}#ffc107{% else %}#dc3545{% endif %};">
+                                    {{ total_hours }}
+                                </div>
+                                <small class="text-muted">{{ teacher.effective_min_hours }}–{{ teacher.effective_max_hours }}ч</small>
+                            </div>
+                        </div>
+
+                        <!-- Список предупреждений -->
+                        {% if warnings %}
+                            <div class="alert alert-light border-left border-warning mt-2 mb-0" style="border-left: 3px solid #ffc107; padding: 8px;">
+                                {% for warning in warnings %}
+                                    <small class="d-block text-muted">{{ warning }}</small>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endwith %}
+        {% endfor %}
+    </div>
+{% else %}
+    <p class="text-muted text-center">🚫 Нет преподавателей в кафедре</p>
+{% endif %}

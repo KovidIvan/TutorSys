@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Учёт учебной нагрузки{% endblock %}</title>
+
+    <!-- Bootstrap 5 CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- HTMX CDN -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .navbar-brand {
+            font-weight: 600;
+        }
+
+        .container-main {
+            margin-top: 30px;
+            margin-bottom: 50px;
+        }
+
+        .card-header {
+            background-color: #007bff;
+            color: white;
+            font-weight: 500;
+        }
+
+        .status-ok {
+            color: #28a745;
+        }
+
+        .status-warning {
+            color: #ffc107;
+        }
+
+        .status-critical {
+            color: #dc3545;
+        }
+
+        .footer {
+            background-color: #f8f9fa;
+            border-top: 1px solid #dee2e6;
+            padding: 20px 0;
+            margin-top: 50px;
+            text-align: center;
+            font-size: 0.9em;
+            color: #6c757d;
+        }
+
+        .sidebar {
+            background-color: white;
+            border-radius: 5px;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .sidebar a {
+            display: block;
+            padding: 10px 15px;
+            margin: 5px 0;
+            border-radius: 4px;
+            text-decoration: none;
+            color: #007bff;
+            transition: all 0.2s;
+        }
+
+        .sidebar a:hover {
+            background-color: #e7f3ff;
+            color: #0056b3;
+        }
+
+        .messages {
+            margin-top: 20px;
+        }
+
+        .alert {
+            border-radius: 5px;
+        }
+    </style>
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Навигация -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">📊 Наглядка</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    {% if user.is_authenticated %}
+                        <!-- Меню для зам. декана -->
+                        {% if is_deputy_dean %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:settings' %}">⚙️ Параметры</a>
+                            </li>
+                        {% endif %}
+
+                        <!-- Меню для зав. кафедрой -->
+                        {% if is_head %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:distribution' %}">📚 Распределение</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:settings' %}">⚙️ Параметры</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:report' %}">📊 Отчёт</a>
+                            </li>
+                        {% endif %}
+
+                        <!-- Меню для преподавателя -->
+                        {% if is_teacher %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:workload' %}">📖 Моя нагрузка</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:journal' %}">📝 Журнал</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:report' %}">📊 Отчёт</a>
+                            </li>
+                        {% endif %}
+
+                        <!-- Админка для всех authorized -->
+                        <li class="nav-item">
+                            <a class="nav-link" href="/admin/">🔧 Админ</a>
+                        </li>
+                    {% endif %}
+                </ul>
+
+                <ul class="navbar-nav ms-auto">
+                    {% if user.is_authenticated %}
+                        <li class="nav-item">
+                            <span class="navbar-text text-white me-3">
+                                👤 {{ user.first_name|default:user.username }}
+                                {% if user_role %}
+                                    <span class="badge bg-info ms-2">{{ user_role|upper }}</span>
+                                {% endif %}
+                            </span>
+                        </li>
+
+                        <li class="nav-item">
+                            <a class="nav-link btn btn-outline-danger btn-sm ms-2" href="/admin/logout/">🚪 Выход</a>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link btn btn-outline-primary btn-sm" href="/admin/login/">🔑 Вход</a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Сообщения -->
+    {% if messages %}
+        <div class="container-fluid container-main">
+            <div class="messages">
+                {% for message in messages %}
+                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- Основное содержимое -->
+    <div class="container-fluid container-main">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- Подвал -->
+    <footer class="footer">
+        <div class="container">
+            💡 Система учёта учебной нагрузки — Прототип для хакатона
+            <br>
+            <small>Django 5.x | PostgreSQL 16 | Bootstrap 5 | HTMX</small>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
