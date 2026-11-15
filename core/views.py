@@ -253,12 +253,13 @@ def distribution_view(request):
 
         load_item.teacher = teacher
         load_item.save()
-        messages.success(request, 'Назначение обновлено.')
 
         if request.htmx:
             return render(request, 'core/_teacher_panel.html', {
                 'teachers_data': _teacher_panel_data(user_department),
             })
+
+        messages.success(request, 'Назначение обновлено.')
         return redirect('core:distribution')
 
     teachers_data = _teacher_panel_data(user_department)

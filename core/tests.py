@@ -763,3 +763,4 @@ class DistributionViewTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'core/_teacher_panel.html')
         self.assertContains(response, '17')
+        self.assertNotIn('_messages', self.client.session)
