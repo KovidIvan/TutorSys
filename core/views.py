@@ -52,6 +52,22 @@ def add_role_context(context, request):
     return context
 
 
+@login_required
+def home_view(request):
+    if has_role(request.user, 'deputy_dean'):
+        return redirect('core:settings')
+    if has_role(request.user, 'head'):
+        return redirect('core:distribution')
+    if has_role(request.user, 'teacher'):
+        return redirect('core:workload')
+    if request.user.is_staff:
+        return redirect('/admin/')
+    return render(request, 'core/error.html', {
+        'message': 'Для вашей учётной записи не назначена роль.',
+        'code': 403,
+    }, status=403)
+
+
 def check_teacher_status(teacher):
     """
     Получить статус преподавателя (OK, Warning, Critical).

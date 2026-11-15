@@ -491,6 +491,15 @@ class ReportTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.teacher.full_name)
 
+    def test_home_redirects_teacher_to_workload_without_admin_link(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get('/')
+
+        self.assertRedirects(response, '/workload/', fetch_redirect_response=False)
+        response = self.client.get('/workload/')
+        self.assertNotContains(response, 'href="/admin/"')
+
     def test_teacher_workload_export_is_valid_xlsx(self):
         from io import BytesIO
         from openpyxl import load_workbook

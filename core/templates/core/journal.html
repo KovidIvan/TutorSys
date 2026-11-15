@@ -48,36 +48,40 @@
                 <h5 class="mb-0">➕ Добавить запись</h5>
             </div>
             <div class="card-body">
-                <form method="post">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="add_entry">
-                    <div class="mb-3">
-                        <label class="form-label">Дисциплина и вид работы</label>
-                        <select name="load_item_id" class="form-select" required>
-                            <option value="">Выберите...</option>
-                            {% for item in load_items %}
-                                <option value="{{ item.id }}">{{ item.discipline.name }} - {{ item.get_kind_display }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Дата</label>
-                        <input type="date" name="date" class="form-control" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Время (опционально)</label>
-                        <input type="time" name="time" class="form-control">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Часы</label>
-                        <input type="number" name="hours" class="form-control" step="0.5" min="0" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Тема занятия</label>
-                        <textarea name="topic" class="form-control" rows="3" required></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100">Добавить запись</button>
-                </form>
+                {% if load_items %}
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="add_entry">
+                        <div class="mb-3">
+                            <label class="form-label">Дисциплина и вид работы</label>
+                            <select name="load_item_id" class="form-select" required>
+                                <option value="">Выберите...</option>
+                                {% for item in load_items %}
+                                    <option value="{{ item.id }}">{{ item.discipline.name }} - {{ item.get_kind_display }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Дата</label>
+                            <input type="date" name="date" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Время (опционально)</label>
+                            <input type="time" name="time" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Часы</label>
+                            <input type="number" name="hours" class="form-control" step="0.5" min="0" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Тема занятия</label>
+                            <textarea name="topic" class="form-control" rows="3" required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Добавить запись</button>
+                    </form>
+                {% else %}
+                    <p class="text-muted mb-0">Вам пока не назначена нагрузка. Обратитесь к заведующему кафедрой.</p>
+                {% endif %}
             </div>
         </div>
     </div>

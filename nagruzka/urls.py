@@ -4,11 +4,11 @@
 
 from django.contrib import admin
 from django.urls import path, include
-from django.views.generic import RedirectView
+from core import views
 
 urlpatterns = [
+    path('', views.home_view, name='home'),
     path('admin/', admin.site.urls),
     path('accounts/', include('django.contrib.auth.urls')),
-    path('', include('core.urls')),  # Подключить маршруты приложения core
-    path('', RedirectView.as_view(url='/admin/', permanent=False)),  # Главная → админка
+    path('', include('core.urls')),
 ]

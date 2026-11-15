@@ -169,12 +169,9 @@ python manage.py runserver
 
 ### Если HTMX не работает (при выборе преподавателя панель не обновляется)
 
-**Причина:** HTMX не подключён в base.html или конфликт
+**Причина:** Локальный файл HTMX не загружается или запрос отклонён сервером.
 
-**Решение:** Проверьте, что в base.html есть:
-```html
-<script src="https://unpkg.com/htmx.org@1.9.10"></script>
-```
+**Решение:** Проверьте, что `base.html` подключает `core/vendor/htmx.min.js`, а в браузере запрос `/static/core/vendor/htmx.min.js` возвращает HTTP 200.
 
 ---
 
