@@ -2,4 +2,10 @@
 bin/
 obj/
 *.user
-.vs/
+env/
+.venv/
+.env
+!/.env.example
+db.sqlite3
+__pycache__/
+*.py[cod]

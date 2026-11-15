@@ -8,6 +8,7 @@ from django.views.generic import RedirectView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('accounts/', include('django.contrib.auth.urls')),
     path('', include('core.urls')),  # Подключить маршруты приложения core
     path('', RedirectView.as_view(url='/admin/', permanent=False)),  # Главная → админка
 ]

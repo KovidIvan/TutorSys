@@ -150,11 +150,14 @@
                         </li>
 
                         <li class="nav-item">
-                            <a class="nav-link btn btn-outline-danger btn-sm ms-2" href="/admin/logout/">🚪 Выход</a>
+                            <form method="post" action="{% url 'logout' %}" class="d-inline">
+                                {% csrf_token %}
+                                <button class="nav-link btn btn-outline-danger btn-sm ms-2" type="submit">🚪 Выход</button>
+                            </form>
                         </li>
                     {% else %}
                         <li class="nav-item">
-                            <a class="nav-link btn btn-outline-primary btn-sm" href="/admin/login/">🔑 Вход</a>
+                            <a class="nav-link btn btn-outline-primary btn-sm" href="{% url 'login' %}">🔑 Вход</a>
                         </li>
                     {% endif %}
                 </ul>
