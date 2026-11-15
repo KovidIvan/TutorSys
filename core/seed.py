@@ -394,9 +394,9 @@ def run():
             'first_name': 'Ольга',
             'last_name': 'Декабрева',
             'email': 'dekabr@vsu.by',
-            'is_staff': True
         }
     )
+    user_deputy.is_staff = False
     user_deputy.set_password('pass123')
     user_deputy.groups.add(group_deputy_dean)
     user_deputy.save()
@@ -408,9 +408,9 @@ def run():
             'first_name': 'Сергей',
             'last_name': 'Иванов',
             'email': 'ivanov@vsu.by',
-            'is_staff': True
         }
     )
+    user_head.is_staff = False
     user_head.set_password('pass123')
     user_head.groups.add(group_head)
     user_head.save()
@@ -434,16 +434,21 @@ def run():
             'first_name': 'Мария',
             'last_name': 'Петрова',
             'email': 'petrova@vsu.by',
-            'is_staff': True
         }
     )
+    user_teacher.is_staff = False
     user_teacher.set_password('pass123')
     user_teacher.groups.add(group_teacher)
     user_teacher.save()
 
-    # Привязать к преподавателю (Teacher #2 - Булгакова)
-    user_teacher.teacher.groups.clear()  # Если уже есть
-    user_teacher.teacher.groups.add(group_teacher)
+    demo_teacher = Teacher.objects.create(
+        user=user_teacher,
+        full_name='Петрова Мария',
+        department=dept_itub,
+        position=pos_st_prep,
+        rate=Decimal('0.75')
+    )
+    demo_teacher.specialization.set([disc_7])
 
     print(f"  ✓ Пользователь deputy_dean (Ольга Декабрева)")
     print(f"  ✓ Пользователь head (Сергей Иванов) → преподаватель")
@@ -466,8 +471,8 @@ def run():
   • Учебные планы: 2
   • Дисциплины: 7
   • Должности: 3
-  • Преподаватели: 8 (7 + 1 для роли head)
-  • Пользователи: 4 (deputy_dean, head, teacher, admin)
+  • Преподаватели: 9 (7 основных, head и teacher)
+  • Пользователи демо: 3 (deputy_dean, head, teacher)
 
 🔐 УЧЁТНЫЕ ДАННЫЕ:
   deputy_dean / pass123    → Зам. декана (Ольга Декабрева)
