@@ -5,7 +5,7 @@
 """
 
 from decimal import Decimal
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from django.db.models import Sum
 from .models import LoadItem, Teacher, CalcSettings, Discipline
 
@@ -353,17 +353,3 @@ def report_for_teacher(teacher: Teacher, year: int = None) -> Dict[str, any]:
             }
 
     return report
-
-
-def report_for_department(department, year: int = None) -> Dict[str, any]:
-    """
-    Построить сводный отчёт по кафедре.
-
-    Аналогично report_for_teacher, но по всем преподавателям кафедры.
-    """
-    teachers = Teacher.objects.filter(department=department)
-
-    return {
-        'department': department,
-        'teacher_reports': [report_for_teacher(t, year) for t in teachers]
-    }

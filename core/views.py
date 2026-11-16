@@ -13,11 +13,11 @@ from decimal import Decimal, InvalidOperation
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from .models import (
-    CalcSettings, PositionRule, Discipline, Department, Teacher, LoadItem, Group, JournalEntry,
+    CalcSettings, PositionRule, Discipline, Department, Teacher, LoadItem, JournalEntry,
     Adjustment
 )
 from .calculations import (
-    calc_department_load, recalculate_department, check_teacher, teacher_total, report_for_teacher
+    recalculate_department, check_teacher, teacher_total, report_for_teacher
 )
 
 

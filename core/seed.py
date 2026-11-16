@@ -487,21 +487,3 @@ def run():
 
 📝 ФАКУЛЬТЕТ: ВГУ имени П.М. Машерова, факультет ФМИТ
 """)
-
-
-def clear_demo_data():
-    """
-    Удалить все демо-данные (кроме суперпользователя).
-    Использование:
-        python manage.py shell
-        from core.seed import clear_demo_data
-        clear_demo_data()
-    """
-    print("Удаляю демо-данные...")
-    Discipline.objects.all().delete()
-    Curriculum.objects.all().delete()
-    Teacher.objects.all().delete()
-    Department.objects.all().delete()
-    Group.objects.all().delete()
-    Specialty.objects.all().delete()
-    print("✓ Данные удалены")
