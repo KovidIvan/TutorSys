@@ -23,6 +23,11 @@ from .calculations import (
 
 # ============ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ============
 
+def error_page(request, message, code=403):
+    """Показать страницу ошибки (доступ запрещён, не найдено и т. п.)."""
+    return render(request, 'core/error.html', {'message': message, 'code': code}, status=code)
+
+
 def has_role(user, role_name):
     """Проверить, есть ли у пользователя указанная роль."""
     return user.groups.filter(name=role_name).exists()
@@ -62,10 +67,7 @@ def home_view(request):
         return redirect('core:workload')
     if request.user.is_staff:
         return redirect('/admin/')
-    return render(request, 'core/error.html', {
-        'message': 'Для вашей учётной записи не назначена роль.',
-        'code': 403,
-    }, status=403)
+    return error_page(request, 'Для вашей учётной записи не назначена роль.', 403)
 
 
 def check_teacher_status(teacher):
@@ -111,10 +113,7 @@ def settings_view(request):
     """
     # Проверка прав доступа
     if not (has_role(request.user, 'deputy_dean') or has_role(request.user, 'head')):
-        return render(request, 'core/error.html', {
-            'message': '❌ Доступ запрещён. Только зам. декана и завед. кафедрой могут менять параметры.',
-            'code': 403
-        }, status=403)
+        return error_page(request, '❌ Доступ запрещён. Только зам. декана и завед. кафедрой могут менять параметры.', 403)
 
     settings = CalcSettings.get()
     position_rules = PositionRule.objects.all()
@@ -208,10 +207,7 @@ def distribution_view(request):
     """
     # Проверка прав доступа
     if not has_role(request.user, 'head'):
-        return render(request, 'core/error.html', {
-            'message': '❌ Доступ запрещён. Только зав. кафедрой может распределять нагрузку.',
-            'code': 403
-        }, status=403)
+        return error_page(request, '❌ Доступ запрещён. Только зав. кафедрой может распределять нагрузку.', 403)
 
     try:
         user_department = request.user.teacher.department
@@ -238,18 +234,12 @@ def distribution_view(request):
             pk=request.POST.get('load_item_id')
         )
         if not user_department or load_item.discipline.department_id != user_department.pk:
-            return render(request, 'core/error.html', {
-                'message': 'Нельзя менять нагрузку другой кафедры.',
-                'code': 403,
-            }, status=403)
+            return error_page(request, 'Нельзя менять нагрузку другой кафедры.', 403)
 
         teacher_id = request.POST.get('teacher_id')
         teacher = get_object_or_404(Teacher, pk=teacher_id) if teacher_id else None
         if teacher and teacher.department_id != user_department.pk:
-            return render(request, 'core/error.html', {
-                'message': 'Нельзя назначить преподавателя другой кафедры.',
-                'code': 403,
-            }, status=403)
+            return error_page(request, 'Нельзя назначить преподавателя другой кафедры.', 403)
 
         load_item.teacher = teacher
         load_item.save()
@@ -282,10 +272,7 @@ def load_teacher_panel_view(request):
     AJAX endpoint: обновить панель преподавателей (для HTMX).
     """
     if not has_role(request.user, 'head'):
-        return render(request, 'core/error.html', {
-            'message': '❌ Доступ запрещён.',
-            'code': 403
-        }, status=403)
+        return error_page(request, '❌ Доступ запрещён.', 403)
 
     try:
         user_department = request.user.teacher.department
@@ -307,10 +294,7 @@ def workload_view(request):
     """
     # Проверка прав доступа
     if not has_role(request.user, 'teacher'):
-        return render(request, 'core/error.html', {
-            'message': '❌ Доступ запрещён. Это страница только для преподавателей.',
-            'code': 403
-        }, status=403)
+        return error_page(request, '❌ Доступ запрещён. Это страница только для преподавателей.', 403)
 
     try:
         teacher = request.user.teacher
@@ -318,10 +302,7 @@ def workload_view(request):
         teacher = None
 
     if not teacher:
-        return render(request, 'core/error.html', {
-            'message': 'Вы не зарегистрированы как преподаватель.',
-            'code': 404
-        }, status=404)
+        return error_page(request, 'Вы не зарегистрированы как преподаватель.', 404)
 
     load_items = LoadItem.objects.filter(
         teacher=teacher
@@ -358,10 +339,7 @@ def journal_view(request):
     """
     # Проверка прав доступа
     if not has_role(request.user, 'teacher'):
-        return render(request, 'core/error.html', {
-            'message': '❌ Доступ запрещён. Это страница только для преподавателей.',
-            'code': 403
-        }, status=403)
+        return error_page(request, '❌ Доступ запрещён. Это страница только для преподавателей.', 403)
 
     try:
         teacher = request.user.teacher
@@ -369,10 +347,7 @@ def journal_view(request):
         teacher = None
 
     if not teacher:
-        return render(request, 'core/error.html', {
-            'message': 'Вы не зарегистрированы как преподаватель.',
-            'code': 404
-        }, status=404)
+        return error_page(request, 'Вы не зарегистрированы как преподаватель.', 404)
 
     # Получить нагрузку преподавателя
     load_items = LoadItem.objects.filter(
@@ -429,10 +404,7 @@ def report_view(request):
     is_head = has_role(request.user, 'head')
     is_teacher = has_role(request.user, 'teacher')
     if not (is_head or is_teacher):
-        return render(request, 'core/error.html', {
-            'message': '❌ Доступ запрещён. Отчёт доступен преподавателям и заведующим кафедрой.',
-            'code': 403
-        }, status=403)
+        return error_page(request, '❌ Доступ запрещён. Отчёт доступен преподавателям и заведующим кафедрой.', 403)
 
     current_year = date.today().year
     valid_year = True
@@ -449,10 +421,7 @@ def report_view(request):
         try:
             department = request.user.teacher.department
         except Teacher.DoesNotExist:
-            return render(request, 'core/error.html', {
-                'message': 'Для вашей учётной записи не указана кафедра.',
-                'code': 404
-            }, status=404)
+            return error_page(request, 'Для вашей учётной записи не указана кафедра.', 404)
         teachers = Teacher.objects.filter(department=department).select_related('department')
         teacher_id = request.POST.get('teacher_id') if request.method == 'POST' else request.GET.get('teacher_id')
         try:
@@ -460,18 +429,12 @@ def report_view(request):
         except (TypeError, ValueError):
             teacher = None
         if teacher is None:
-            return render(request, 'core/error.html', {
-                'message': 'На кафедре пока нет преподавателей для отчёта.',
-                'code': 404
-            }, status=404)
+            return error_page(request, 'На кафедре пока нет преподавателей для отчёта.', 404)
     else:
         try:
             teacher = request.user.teacher
         except Teacher.DoesNotExist:
-            return render(request, 'core/error.html', {
-                'message': 'Вы не зарегистрированы как преподаватель.',
-                'code': 404
-            }, status=404)
+            return error_page(request, 'Вы не зарегистрированы как преподаватель.', 404)
         teachers = None
 
     load_items = LoadItem.objects.filter(teacher=teacher).select_related('discipline')
@@ -601,27 +564,18 @@ def export_excel_view(request, export_type):
         'department-load', 'teachers', 'workload', 'journal', 'report'
     }
     if export_type not in export_types:
-        return render(request, 'core/error.html', {
-            'message': 'Неизвестный тип экспорта.',
-            'code': 404
-        }, status=404)
+        return error_page(request, 'Неизвестный тип экспорта.', 404)
 
     is_head = has_role(request.user, 'head')
     is_teacher = has_role(request.user, 'teacher')
 
     if export_type in {'department-load', 'teachers'}:
         if not is_head:
-            return render(request, 'core/error.html', {
-                'message': 'Экспорт кафедральных данных доступен только заведующему кафедрой.',
-                'code': 403
-            }, status=403)
+            return error_page(request, 'Экспорт кафедральных данных доступен только заведующему кафедрой.', 403)
         try:
             department = request.user.teacher.department
         except Teacher.DoesNotExist:
-            return render(request, 'core/error.html', {
-                'message': 'Для вашей учётной записи не указана кафедра.',
-                'code': 404
-            }, status=404)
+            return error_page(request, 'Для вашей учётной записи не указана кафедра.', 404)
 
         if export_type == 'department-load':
             items = LoadItem.objects.filter(
@@ -664,17 +618,11 @@ def export_excel_view(request, export_type):
 
     if export_type in {'workload', 'journal'}:
         if not is_teacher:
-            return render(request, 'core/error.html', {
-                'message': 'Личные данные доступны только преподавателю.',
-                'code': 403
-            }, status=403)
+            return error_page(request, 'Личные данные доступны только преподавателю.', 403)
         try:
             teacher = request.user.teacher
         except Teacher.DoesNotExist:
-            return render(request, 'core/error.html', {
-                'message': 'Вы не зарегистрированы как преподаватель.',
-                'code': 404
-            }, status=404)
+            return error_page(request, 'Вы не зарегистрированы как преподаватель.', 404)
 
         if export_type == 'workload':
             items = LoadItem.objects.filter(teacher=teacher).select_related(
@@ -719,10 +667,7 @@ def export_excel_view(request, export_type):
         try:
             department = request.user.teacher.department
         except Teacher.DoesNotExist:
-            return render(request, 'core/error.html', {
-                'message': 'Для вашей учётной записи не указана кафедра.',
-                'code': 404
-            }, status=404)
+            return error_page(request, 'Для вашей учётной записи не указана кафедра.', 404)
         teachers = Teacher.objects.filter(department=department)
         teacher_id = request.GET.get('teacher_id')
         try:
@@ -730,33 +675,21 @@ def export_excel_view(request, export_type):
         except (TypeError, ValueError):
             teacher = None
         if teacher is None:
-            return render(request, 'core/error.html', {
-                'message': 'Преподаватель не найден на вашей кафедре.',
-                'code': 404
-            }, status=404)
+            return error_page(request, 'Преподаватель не найден на вашей кафедре.', 404)
     elif is_teacher:
         try:
             teacher = request.user.teacher
         except Teacher.DoesNotExist:
-            return render(request, 'core/error.html', {
-                'message': 'Вы не зарегистрированы как преподаватель.',
-                'code': 404
-            }, status=404)
+            return error_page(request, 'Вы не зарегистрированы как преподаватель.', 404)
     else:
-        return render(request, 'core/error.html', {
-            'message': 'Отчёт доступен преподавателям и заведующим кафедрой.',
-            'code': 403
-        }, status=403)
+        return error_page(request, 'Отчёт доступен преподавателям и заведующим кафедрой.', 403)
 
     try:
         year = int(request.GET.get('year', date.today().year))
         if not 1900 <= year <= 2100:
             raise ValueError
     except (TypeError, ValueError):
-        return render(request, 'core/error.html', {
-            'message': 'Укажите корректный год отчёта.',
-            'code': 400
-        }, status=400)
+        return error_page(request, 'Укажите корректный год отчёта.', 400)
 
     report_data = report_for_teacher(teacher, year)
     adjustments = Adjustment.objects.filter(teacher=teacher, year=year).select_related('discipline')
