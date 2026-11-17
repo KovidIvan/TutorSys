@@ -15,6 +15,9 @@ urlpatterns = [
     path('distribution/', views.distribution_view, name='distribution'),
     path('distribution/panel/', views.load_teacher_panel_view, name='load_teacher_panel'),
 
+    # Преподаватели кафедры
+    path('teachers/', views.teachers_view, name='teachers'),
+
     # Нагрузка преподавателя
     path('workload/', views.workload_view, name='workload'),
 

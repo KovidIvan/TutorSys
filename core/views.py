@@ -4,7 +4,11 @@
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
+from django import forms
 from django.contrib import messages
+from django.contrib.auth.models import Group, User
+from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
 from django.db.models import Sum
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
@@ -196,6 +200,135 @@ def settings_view(request):
     }
     context = add_role_context(context, request)
     return render(request, 'core/settings.html', context)
+
+
+# ============ ПРЕПОДАВАТЕЛИ (зав. кафедрой) ============
+
+class TeacherForm(forms.ModelForm):
+    """Форма преподавателя; логин и пароль нужны при создании, пароль при правке — по желанию."""
+    username = forms.CharField(label='Логин', max_length=150, required=False)
+    password = forms.CharField(
+        label='Пароль', required=False, widget=forms.PasswordInput(render_value=False),
+        help_text='При правке оставьте пустым, чтобы не менять пароль.'
+    )
+
+    class Meta:
+        model = Teacher
+        fields = ['full_name', 'position', 'degree', 'rank', 'rate', 'specialization']
+        widgets = {'specialization': forms.CheckboxSelectMultiple}
+
+    def __init__(self, *args, department=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.department = department
+        self.fields['specialization'].queryset = Discipline.objects.filter(department=department).order_by('name')
+        self.fields['specialization'].required = False
+        self.fields['position'].required = True
+        self.fields['position'].queryset = PositionRule.objects.all()
+        if self.instance.pk:
+            self.fields['username'].initial = self.instance.user.username
+            self.fields['username'].disabled = True
+        for name, field in self.fields.items():
+            if name != 'specialization':
+                field.widget.attrs.setdefault('class', 'form-select' if isinstance(field, forms.ModelChoiceField) or name == 'degree' else 'form-control')
+
+    def clean_username(self):
+        if self.instance.pk:
+            return self.instance.user.username
+        username = (self.cleaned_data.get('username') or '').strip()
+        if not username:
+            raise forms.ValidationError('Укажите логин.')
+        if User.objects.filter(username__iexact=username).exists():
+            raise forms.ValidationError('Такой логин уже занят.')
+        return username
+
+    def clean_rate(self):
+        rate = self.cleaned_data['rate']
+        if rate <= 0 or rate > Decimal('1.5'):
+            raise forms.ValidationError('Ставка должна быть в диапазоне от 0,01 до 1,5.')
+        return rate
+
+    def clean(self):
+        cleaned = super().clean()
+        password = cleaned.get('password')
+        if not self.instance.pk and not password:
+            self.add_error('password', 'Задайте пароль.')
+        if password:
+            user = self.instance.user if self.instance.pk else User(username=cleaned.get('username') or '')
+            try:
+                validate_password(password, user)
+            except forms.ValidationError as exc:
+                self.add_error('password', exc)
+        return cleaned
+
+    @transaction.atomic
+    def save(self, commit=True):
+        teacher = super().save(commit=False)
+        teacher.department = self.department
+        password = self.cleaned_data.get('password')
+        if teacher.pk:
+            if password:
+                teacher.user.set_password(password)
+                teacher.user.save()
+        else:
+            user = User.objects.create_user(username=self.cleaned_data['username'], password=password)
+            user.groups.add(Group.objects.get_or_create(name='teacher')[0])
+            teacher.user = user
+        teacher.save()
+        self.save_m2m()
+        return teacher
+
+
+@login_required
+def teachers_view(request):
+    """Список преподавателей кафедры, добавление, правка и удаление. Доступ: зав. кафедрой."""
+    if not has_role(request.user, 'head'):
+        return error_page(request, '❌ Доступ запрещён. Страница доступна только зав. кафедрой.', 403)
+    try:
+        department = request.user.teacher.department
+    except Teacher.DoesNotExist:
+        return error_page(request, 'Ваша учётная запись не привязана к кафедре.', 403)
+
+    teachers_qs = Teacher.objects.filter(department=department)
+    edit_id = request.GET.get('edit')
+    instance = None
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'delete':
+            target = get_object_or_404(teachers_qs, pk=request.POST.get('teacher_id'))
+            if target.pk == request.user.teacher.pk or department.head_id == target.pk:
+                messages.error(request, 'Нельзя удалить заведующего кафедрой.')
+            else:
+                name = target.full_name
+                with transaction.atomic():
+                    user = target.user
+                    target.delete()
+                    user.delete()
+                messages.success(request, f'Преподаватель «{name}» удалён вместе с его нагрузкой и журналом.')
+            return redirect('core:teachers')
+        if action == 'save':
+            raw_id = request.POST.get('teacher_id')
+            instance = get_object_or_404(teachers_qs, pk=raw_id) if raw_id else None
+            form = TeacherForm(request.POST, instance=instance, department=department)
+            if form.is_valid():
+                teacher = form.save()
+                messages.success(request, f'Преподаватель «{teacher.full_name}» сохранён.')
+                return redirect('core:teachers')
+        else:
+            return error_page(request, 'Неизвестное действие.', 400)
+    else:
+        if edit_id:
+            instance = get_object_or_404(teachers_qs, pk=edit_id)
+        form = TeacherForm(instance=instance, department=department)
+
+    context = {
+        'department': department,
+        'teachers': teachers_qs.select_related('position', 'user').order_by('full_name'),
+        'form': form,
+        'editing': instance,
+    }
+    context = add_role_context(context, request)
+    return render(request, 'core/teachers.html', context)
 
 
 # ============ РАСПРЕДЕЛЕНИЕ НАГРУЗКИ ============

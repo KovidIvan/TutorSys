@@ -950,3 +950,108 @@ class DistributionViewTestCase(TestCase):
         self.assertTemplateUsed(response, 'core/_teacher_panel.html')
         self.assertContains(response, '17')
         self.assertNotIn('_messages', self.client.session)
+
+
+class TeachersPageTestCase(TestCase):
+    """Страница «Преподаватели» зав. кафедрой: права и CRUD."""
+
+    def setUp(self):
+        self.teacher_group, _ = AuthGroup.objects.get_or_create(name='teacher')
+        self.head_group, _ = AuthGroup.objects.get_or_create(name='head')
+        self.dean_group, _ = AuthGroup.objects.get_or_create(name='deputy_dean')
+        self.department = Department.objects.create(name='Кафедра А')
+        self.other_department = Department.objects.create(name='Кафедра Б')
+        self.position = PositionRule.objects.create(
+            position='Доцент', min_hours=840, max_hours=900, min_lecture_hours=100, can_lecture=True
+        )
+
+        self.head_user = User.objects.create_user(username='t2_head', password='pass')
+        self.head_user.groups.add(self.head_group)
+        self.head = Teacher.objects.create(
+            user=self.head_user, full_name='Зав А', department=self.department, position=self.position
+        )
+        self.department.head = self.head
+        self.department.save()
+
+        self.own_user = User.objects.create_user(username='t2_own', password='pass')
+        self.own_user.groups.add(self.teacher_group)
+        self.own = Teacher.objects.create(
+            user=self.own_user, full_name='Свой', department=self.department, position=self.position
+        )
+        self.foreign_user = User.objects.create_user(username='t2_foreign', password='pass')
+        self.foreign_user.groups.add(self.teacher_group)
+        self.foreign = Teacher.objects.create(
+            user=self.foreign_user, full_name='Чужой', department=self.other_department, position=self.position
+        )
+        self.url = '/teachers/'
+
+    def payload(self, **extra):
+        data = {
+            'action': 'save', 'full_name': 'Новый Преподаватель', 'position': self.position.pk,
+            'degree': 'none', 'rank': '', 'rate': '1.00',
+            'username': 't2_new', 'password': 'Str0ng-pass-91',
+        }
+        data.update(extra)
+        return data
+
+    def test_only_head_has_access(self):
+        self.client.login(username='t2_own', password='pass')
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+        dean = User.objects.create_user(username='t2_dean', password='pass')
+        dean.groups.add(self.dean_group)
+        self.client.login(username='t2_dean', password='pass')
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_list_shows_only_own_department(self):
+        self.client.login(username='t2_head', password='pass')
+        response = self.client.get(self.url)
+        self.assertContains(response, 'Свой')
+        self.assertNotContains(response, 'Чужой')
+
+    def test_create_makes_user_group_and_teacher_in_own_department(self):
+        self.client.login(username='t2_head', password='pass')
+        response = self.client.post(self.url, self.payload())
+        self.assertEqual(response.status_code, 302)
+        teacher = Teacher.objects.get(full_name='Новый Преподаватель')
+        self.assertEqual(teacher.department, self.department)
+        self.assertTrue(teacher.user.groups.filter(name='teacher').exists())
+        self.assertTrue(teacher.user.check_password('Str0ng-pass-91'))
+
+    def test_create_requires_unique_login_and_password(self):
+        self.client.login(username='t2_head', password='pass')
+        self.client.post(self.url, self.payload(username='t2_own'))
+        self.assertFalse(Teacher.objects.filter(full_name='Новый Преподаватель').exists())
+        self.client.post(self.url, self.payload(password=''))
+        self.assertFalse(Teacher.objects.filter(full_name='Новый Преподаватель').exists())
+
+    def test_edit_updates_fields_and_keeps_password_when_blank(self):
+        self.client.login(username='t2_head', password='pass')
+        self.client.post(self.url, self.payload(
+            teacher_id=self.own.pk, full_name='Свой Изменённый', rate='0.50', password='', username='ignored'
+        ))
+        self.own.refresh_from_db()
+        self.own_user.refresh_from_db()
+        self.assertEqual(self.own.full_name, 'Свой Изменённый')
+        self.assertEqual(self.own.rate, Decimal('0.50'))
+        self.assertEqual(self.own_user.username, 't2_own')
+        self.assertTrue(self.own_user.check_password('pass'))
+
+    def test_cannot_edit_or_delete_foreign_teacher(self):
+        self.client.login(username='t2_head', password='pass')
+        self.assertEqual(self.client.get(self.url, {'edit': self.foreign.pk}).status_code, 404)
+        self.assertEqual(self.client.post(self.url, self.payload(teacher_id=self.foreign.pk)).status_code, 404)
+        self.assertEqual(self.client.post(self.url, {'action': 'delete', 'teacher_id': self.foreign.pk}).status_code, 404)
+        self.assertTrue(Teacher.objects.filter(pk=self.foreign.pk).exists())
+
+    def test_delete_removes_teacher_and_user_but_not_head(self):
+        self.client.login(username='t2_head', password='pass')
+        self.client.post(self.url, {'action': 'delete', 'teacher_id': self.own.pk})
+        self.assertFalse(Teacher.objects.filter(pk=self.own.pk).exists())
+        self.assertFalse(User.objects.filter(username='t2_own').exists())
+        self.client.post(self.url, {'action': 'delete', 'teacher_id': self.head.pk})
+        self.assertTrue(Teacher.objects.filter(pk=self.head.pk).exists())
+
+    def test_delete_via_get_is_not_performed(self):
+        self.client.login(username='t2_head', password='pass')
+        self.client.get(self.url, {'action': 'delete', 'teacher_id': self.own.pk})
+        self.assertTrue(Teacher.objects.filter(pk=self.own.pk).exists())
