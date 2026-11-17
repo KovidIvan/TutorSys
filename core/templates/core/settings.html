@@ -92,19 +92,48 @@
         <!-- Кнопка пересчёта -->
         <div class="card bg-light mb-4">
             <div class="card-body">
-                <h5>⚠️ Внимание: параметры изменены</h5>
-                <p class="mb-3">После изменения параметров нагрузка кафедр рассчитана по старым нормам.</p>
-                <form method="post" style="display: inline;">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="recalculate_all">
-                    <button type="submit" class="btn btn-warning btn-lg">
-                        🔄 Пересчитать нагрузку всех кафедр
-                    </button>
-                </form>
-                <p class="mt-3 mb-0 text-muted">
-                    <small>✓ Назначенные преподаватели будут сохранены<br>
-                    ✓ Изменены только часы элементов нагрузки</small>
-                </p>
+                {% if is_head %}
+                    <h5>🔄 Пересчёт нагрузки вашей кафедры</h5>
+                    <p class="mb-3">
+                        {% if user_department %}
+                            Пересчитать часы элементов нагрузки для <strong>«{{ user_department.name }}»</strong> по текущим параметрам расчёта.
+                        {% else %}
+                            Пересчитать часы элементов нагрузки вашей кафедры по текущим параметрам расчёта.
+                        {% endif %}
+                    </p>
+                    <form method="post" style="display: inline;">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="recalculate_department">
+                        <button type="submit" class="btn btn-warning btn-lg">
+                            🔄 Пересчитать часы моей кафедры
+                        </button>
+                    </form>
+                    <p class="mt-3 mb-0 text-muted">
+                        <small>✓ Нагрузка пересчитывается <strong>только для вашей кафедры</strong><br>
+                        ✓ Назначенные преподаватели будут сохранены<br>
+                        ✓ Нагрузка других кафедр не изменяется</small>
+                    </p>
+                {% else %}
+                    <h5>🔄 Пересчёт нагрузки кафедр</h5>
+                    <p class="mb-3">Выберите кафедру для пересчёта или пересчитайте нагрузку всех кафедр:</p>
+                    <form method="post" class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="recalculate_department">
+                        <select name="department_id" class="form-select w-auto">
+                            <option value="">Все кафедры</option>
+                            {% for dept in all_departments %}
+                                <option value="{{ dept.id }}">{{ dept.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-warning">
+                            🔄 Пересчитать нагрузку
+                        </button>
+                    </form>
+                    <p class="mt-2 mb-0 text-muted">
+                        <small>✓ Назначенные преподаватели будут сохранены<br>
+                        ✓ Изменены только часы элементов нагрузки</small>
+                    </p>
+                {% endif %}
             </div>
         </div>
     </div>

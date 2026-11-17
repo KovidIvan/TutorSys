@@ -148,16 +148,38 @@ def settings_view(request):
                 messages.error(request, f'Ошибка при сохранении параметров: {e}')
 
         # ============ ПЕРЕСЧЁТ НАГРУЗКИ ============
-        elif action == 'recalculate_all':
+        elif action in ('recalculate_all', 'recalculate_department'):
             try:
-                departments = Department.objects.all()
-                for dept in departments:
+                if has_role(request.user, 'head'):
+                    # Зав. кафедрой пересчитывает часы ТОЛЬКО для своей кафедры
+                    try:
+                        dept = request.user.teacher.department
+                    except (Teacher.DoesNotExist, AttributeError):
+                        return error_page(request, 'Для вашей учётной записи не указана кафедра.', 404)
                     recalculate_department(dept, settings)
-                messages.success(
-                    request,
-                    f'Нагрузка пересчитана для {departments.count()} кафедр. '
-                    'Назначенные преподаватели сохранены.'
-                )
+                    messages.success(
+                        request,
+                        f'Нагрузка успешно пересчитана только для кафедры «{dept.name}». '
+                        'Назначенные преподаватели сохранены.'
+                    )
+                elif has_role(request.user, 'deputy_dean'):
+                    dept_id = request.POST.get('department_id')
+                    if dept_id:
+                        dept = get_object_or_404(Department, pk=dept_id)
+                        recalculate_department(dept, settings)
+                        messages.success(
+                            request,
+                            f'Нагрузка пересчитана для кафедры «{dept.name}».'
+                        )
+                    else:
+                        departments = Department.objects.all()
+                        for dept in departments:
+                            recalculate_department(dept, settings)
+                        messages.success(
+                            request,
+                            f'Нагрузка пересчитана для всех кафедр ({departments.count()}). '
+                            'Назначенные преподаватели сохранены.'
+                        )
             except Exception as e:
                 messages.error(request, f'Ошибка при пересчёте: {e}')
 
@@ -199,6 +221,7 @@ def settings_view(request):
     context = {
         'settings': settings,
         'position_rules': position_rules,
+        'all_departments': Department.objects.all(),
     }
     context = add_role_context(context, request)
     return render(request, 'core/settings.html', context)
@@ -365,6 +388,19 @@ def distribution_view(request):
     )
 
     if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'recalculate':
+            if not user_department:
+                return error_page(request, 'Для вашей учётной записи не указана кафедра.', 404)
+            settings = CalcSettings.get()
+            recalculate_department(user_department, settings)
+            messages.success(
+                request,
+                f'Нагрузка успешно пересчитана только для кафедры «{user_department.name}». '
+                'Назначения преподавателей сохранены.'
+            )
+            return redirect('core:distribution')
+
         load_item = get_object_or_404(
             LoadItem.objects.select_related('discipline'),
             pk=request.POST.get('load_item_id')

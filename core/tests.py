@@ -1055,3 +1055,64 @@ class TeachersPageTestCase(TestCase):
         self.client.login(username='t2_head', password='pass')
         self.client.get(self.url, {'action': 'delete', 'teacher_id': self.own.pk})
         self.assertTrue(Teacher.objects.filter(pk=self.own.pk).exists())
+
+
+class DepartmentRecalculateViewTestCase(TestCase):
+    """Тесты пересчёта нагрузки: зав. кафедрой пересчитывает только свою кафедру."""
+
+    def setUp(self):
+        self.settings = CalcSettings.get()
+        self.group_head, _ = AuthGroup.objects.get_or_create(name='head')
+        self.group_deputy, _ = AuthGroup.objects.get_or_create(name='deputy_dean')
+
+        self.dept_a = Department.objects.create(name='Кафедра А')
+        self.dept_b = Department.objects.create(name='Кафедра Б')
+
+        self.spec = Specialty.objects.create(code='01.01.01', name='Спец', abbr='СП')
+        self.curriculum = Curriculum.objects.create(specialty=self.spec, admission_year=2026, study_form='full_time')
+        self.group = Group.objects.create(name='Гр1', specialty=self.spec, course=1, students_count=20, subgroups_count=2)
+
+        self.disc_a = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.dept_a, name='Дисциплина А',
+            semester=1, control_form='exam', hours_lec=Decimal('30')
+        )
+        self.disc_a.groups.add(self.group)
+
+        self.disc_b = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.dept_b, name='Дисциплина Б',
+            semester=1, control_form='exam', hours_lec=Decimal('40')
+        )
+        self.disc_b.groups.add(self.group)
+
+        self.user_head_a = User.objects.create_user('head_a', password='pass')
+        self.user_head_a.groups.add(self.group_head)
+        self.teacher_head_a = Teacher.objects.create(
+            user=self.user_head_a, full_name='Зав А', department=self.dept_a, rate=Decimal('1.0')
+        )
+
+        self.user_deputy = User.objects.create_user('deputy', password='pass')
+        self.user_deputy.groups.add(self.group_deputy)
+
+    def test_head_recalculates_only_own_department_in_settings(self):
+        self.client.login(username='head_a', password='pass')
+        # Запрос пересчёта (даже если отправлено recalculate_all)
+        response = self.client.post('/settings/', {'action': 'recalculate_all'})
+        self.assertEqual(response.status_code, 302)
+        # Нагрузка кафедры А создана
+        self.assertTrue(LoadItem.objects.filter(discipline__department=self.dept_a).exists())
+        # Нагрузка кафедры Б НЕ создана
+        self.assertFalse(LoadItem.objects.filter(discipline__department=self.dept_b).exists())
+
+    def test_head_recalculates_on_distribution_page(self):
+        self.client.login(username='head_a', password='pass')
+        response = self.client.post('/distribution/', {'action': 'recalculate'})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(LoadItem.objects.filter(discipline__department=self.dept_a).exists())
+        self.assertFalse(LoadItem.objects.filter(discipline__department=self.dept_b).exists())
+
+    def test_deputy_dean_can_recalculate_specific_department(self):
+        self.client.login(username='deputy', password='pass')
+        response = self.client.post('/settings/', {'action': 'recalculate_department', 'department_id': self.dept_b.id})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(LoadItem.objects.filter(discipline__department=self.dept_a).exists())
+        self.assertTrue(LoadItem.objects.filter(discipline__department=self.dept_b).exists())
