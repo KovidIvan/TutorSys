@@ -5,7 +5,7 @@
     <div class="col-md-7">
         <div class="card mb-4">
             <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-                <h4 class="mb-0">📚 Элементы нагрузки кафедры</h4>
+                <h4 class="mb-0">📚 Элементы нагрузки{% if user_department %}: {{ user_department.name }}{% endif %}</h4>
                 <div class="d-flex gap-2">
                     <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'department-load' %}">📥 Нагрузка Excel</a>
                     <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'teachers' %}">📥 Преподаватели Excel</a>

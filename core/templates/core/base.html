@@ -150,8 +150,11 @@
                         <li class="nav-item">
                             <span class="navbar-text text-white me-3">
                                 👤 {{ user.first_name|default:user.username }}
+                                {% if user_department %}
+                                    <span class="badge bg-secondary ms-1">{{ user_department.name }}</span>
+                                {% endif %}
                                 {% if user_role %}
-                                    <span class="badge bg-info ms-2">{{ user_role|upper }}</span>
+                                    <span class="badge bg-info ms-1">{{ user_role|upper }}</span>
                                 {% endif %}
                             </span>
                         </li>

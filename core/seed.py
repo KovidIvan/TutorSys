@@ -1,26 +1,27 @@
 """
-Демо-данные факультета математики и информационных технологий ВГУ имени П.М. Машерова.
-
-Источник: официальный сайт vsu.by (факультет ФМИТ).
-Использование:
-    python manage.py shell
-    from core.seed import run
-    run()
+Модуль создания демонстрационных данных TutorSys.
+Генерирует кафедры, учебные планы, группы, дисциплины, вымышленных преподавателей
+и сразу рассчитывает учебную нагрузку для всех кафедр.
 """
 
 from django.contrib.auth.models import User, Group as UserGroup
 from decimal import Decimal
+from datetime import date
 from .models import (
     Specialty, Department, Group, Curriculum, Discipline,
-    CalcSettings, PositionRule, Teacher
+    CalcSettings, PositionRule, Teacher, LoadItem, JournalEntry, Adjustment
 )
+from .calculations import recalculate_department
 
 
 def run():
-    """Загрузить демо-данные факультета ФМИТ ВГУ."""
+    """Загрузить демо-данные с автоматическим расчётом нагрузки."""
 
-    print("Очищаю базу данных (кроме пользователей)...")
-    # Очистить в правильном порядке (чтобы не было конфликтов ForeignKey)
+    print("Очищаю базу данных...")
+    # Очистить в правильном порядке зависимостей
+    JournalEntry.objects.all().delete()
+    Adjustment.objects.all().delete()
+    LoadItem.objects.all().delete()
     Discipline.objects.all().delete()
     Curriculum.objects.all().delete()
     Teacher.objects.all().delete()
@@ -28,6 +29,15 @@ def run():
     Group.objects.all().delete()
     Specialty.objects.all().delete()
     PositionRule.objects.all().delete()
+
+    # Удалить старых пользователей демо (включая старые реальные имена для приватности)
+    demo_usernames = [
+        'deputy_dean', 'head', 'head_it', 'head_math', 'head_prog', 'head_pisp',
+        'teacher', 'teacher_it', 'teacher_math', 'teacher_prog',
+        'sokolov', 'morozov', 'fedorova', 'novikova', 'lebedev',
+        'pavlysh', 'bulgakova', 'prohozhiy', 'vorobyev', 'podoksyonov', 'karaulova', 'korchevskaya'
+    ]
+    User.objects.filter(username__in=demo_usernames).delete()
 
     print("✓ База очищена\n")
 
@@ -43,32 +53,39 @@ def run():
         name="Прикладная математика",
         abbr="ПМ"
     )
+    spec_po = Specialty.objects.create(
+        code="6-05-0611-01",
+        name="Программная инженерия",
+        abbr="ПО"
+    )
     print(f"  ✓ {spec_pi}")
-    print(f"  ✓ {spec_pm}\n")
+    print(f"  ✓ {spec_pm}")
+    print(f"  ✓ {spec_po}\n")
 
     # ============ КАФЕДРЫ ============
     print("🏛️  Создаю кафедры...")
+    dept_it = Department.objects.create(
+        name="Кафедра информационных технологий и управления бизнесом"
+    )
     dept_math = Department.objects.create(
         name="Кафедра математики"
-    )
-    dept_itub = Department.objects.create(
-        name="Кафедра информационных технологий и управления бизнесом"
     )
     dept_pisp = Department.objects.create(
         name="Кафедра прикладного и системного программирования"
     )
+    print(f"  ✓ {dept_it}")
     print(f"  ✓ {dept_math}")
-    print(f"  ✓ {dept_itub}")
     print(f"  ✓ {dept_pisp}\n")
 
     # ============ ГРУППЫ ============
     print("👥 Создаю студенческие группы...")
+    # Группы 24 и 23 студента формируют контрольный расчёт нагрузки 277.95 ч
     group_pi1 = Group.objects.create(
         name="26ПИ1д",
         specialty=spec_pi,
         course=1,
         study_form="full_time",
-        students_count=15,
+        students_count=24,
         subgroups_count=2
     )
     group_pi2 = Group.objects.create(
@@ -76,7 +93,7 @@ def run():
         specialty=spec_pi,
         course=1,
         study_form="full_time",
-        students_count=15,
+        students_count=23,
         subgroups_count=2
     )
     group_pm1 = Group.objects.create(
@@ -84,12 +101,21 @@ def run():
         specialty=spec_pm,
         course=1,
         study_form="full_time",
-        students_count=24,
+        students_count=25,
         subgroups_count=2
     )
-    print(f"  ✓ {group_pi1} ({group_pi1.students_count} студентов)")
-    print(f"  ✓ {group_pi2} ({group_pi2.students_count} студентов)")
-    print(f"  ✓ {group_pm1} ({group_pm1.students_count} студентов)\n")
+    group_po1 = Group.objects.create(
+        name="26ПО1д",
+        specialty=spec_po,
+        course=1,
+        study_form="full_time",
+        students_count=22,
+        subgroups_count=2
+    )
+    print(f"  ✓ {group_pi1} ({group_pi1.students_count} студ.)")
+    print(f"  ✓ {group_pi2} ({group_pi2.students_count} студ.)")
+    print(f"  ✓ {group_pm1} ({group_pm1.students_count} студ.)")
+    print(f"  ✓ {group_po1} ({group_po1.students_count} студ.)\n")
 
     # ============ УЧЕБНЫЕ ПЛАНЫ ============
     print("📋 Создаю учебные планы...")
@@ -103,105 +129,37 @@ def run():
         admission_year=2026,
         study_form="full_time"
     )
+    cur_po_2026 = Curriculum.objects.create(
+        specialty=spec_po,
+        admission_year=2026,
+        study_form="full_time"
+    )
     print(f"  ✓ {cur_pi_2026}")
-    print(f"  ✓ {cur_pm_2026}\n")
+    print(f"  ✓ {cur_pm_2026}")
+    print(f"  ✓ {cur_po_2026}\n")
 
-    # ============ ДИСЦИПЛИНЫ ============
-    print("📖 Создаю дисциплины...")
+    # ============ ДИСЦИПЛИНЫ (по 4 на каждую кафедру) ============
+    print("📖 Создаю дисциплины кафедр...")
 
-    disc_1 = Discipline.objects.create(
+    # --- 1. Кафедра информационных технологий (dept_it) ---
+    disc_db = Discipline.objects.create(
         curriculum=cur_pi_2026,
-        department=dept_pisp,
-        name="Основы и методологии программирования",
+        department=dept_it,
+        name="Базы данных",
         semester=1,
         control_form="exam",
         hours_lec=Decimal('30'),
-        hours_pract=Decimal('0'),
+        hours_pract=Decimal('20'),
         hours_lab=Decimal('40'),
-        hours_usr=Decimal('0'),
-        control_works=0,
+        hours_usr=Decimal('18'),
+        control_works=2,
         credits=Decimal('5')
     )
-    disc_1.groups.set([group_pi1, group_pi2, group_pm1])
+    disc_db.groups.set([group_pi1, group_pi2])  # 24 + 23 = 47 студентов -> 277.95 ч
 
-    disc_2 = Discipline.objects.create(
+    disc_net = Discipline.objects.create(
         curriculum=cur_pi_2026,
-        department=dept_math,
-        name="Математический анализ",
-        semester=1,
-        control_form="exam",
-        hours_lec=Decimal('40'),
-        hours_pract=Decimal('30'),
-        hours_lab=Decimal('0'),
-        hours_usr=Decimal('0'),
-        control_works=0,
-        credits=Decimal('4')
-    )
-    disc_2.groups.set([group_pi1, group_pi2, group_pm1])
-
-    disc_3 = Discipline.objects.create(
-        curriculum=cur_pi_2026,
-        department=dept_math,
-        name="Аналитическая геометрия",
-        semester=1,
-        control_form="exam",
-        hours_lec=Decimal('20'),
-        hours_pract=Decimal('20'),
-        hours_lab=Decimal('0'),
-        hours_usr=Decimal('0'),
-        control_works=0,
-        credits=Decimal('3')
-    )
-    disc_3.groups.set([group_pi1, group_pi2, group_pm1])
-
-    disc_4 = Discipline.objects.create(
-        curriculum=cur_pi_2026,
-        department=dept_math,
-        name="Алгебра и теория чисел",
-        semester=1,
-        control_form="credit",
-        hours_lec=Decimal('20'),
-        hours_pract=Decimal('20'),
-        hours_lab=Decimal('0'),
-        hours_usr=Decimal('0'),
-        control_works=0,
-        credits=Decimal('3')
-    )
-    disc_4.groups.set([group_pi1, group_pi2])
-
-    disc_5 = Discipline.objects.create(
-        curriculum=cur_pi_2026,
-        department=dept_math,
-        name="Дискретная математика и математическая логика",
-        semester=2,
-        control_form="exam",
-        hours_lec=Decimal('30'),
-        hours_pract=Decimal('20'),
-        hours_lab=Decimal('0'),
-        hours_usr=Decimal('0'),
-        control_works=0,
-        credits=Decimal('4')
-    )
-    disc_5.groups.set([group_pi1, group_pi2, group_pm1])
-
-    disc_6 = Discipline.objects.create(
-        curriculum=cur_pi_2026,
-        department=dept_pisp,
-        name="Алгоритмы и структуры данных",
-        semester=2,
-        control_form="exam",
-        hours_lec=Decimal('30'),
-        hours_pract=Decimal('10'),
-        hours_lab=Decimal('30'),
-        hours_usr=Decimal('0'),
-        control_works=0,
-        credits=Decimal('4')
-    )
-    disc_6.groups.set([group_pi1, group_pi2, group_pm1])
-
-    disc_7 = Discipline.objects.create(
-        curriculum=cur_pi_2026,
-        department=dept_itub,
+        department=dept_it,
         name="Компьютерные сети",
         semester=2,
         control_form="credit",
@@ -212,15 +170,161 @@ def run():
         control_works=0,
         credits=Decimal('3')
     )
-    disc_7.groups.set([group_pi1, group_pi2])
+    disc_net.groups.set([group_pi1, group_pi2])
 
-    print(f"  ✓ {disc_1.name}")
-    print(f"  ✓ {disc_2.name}")
-    print(f"  ✓ {disc_3.name}")
-    print(f"  ✓ {disc_4.name}")
-    print(f"  ✓ {disc_5.name}")
-    print(f"  ✓ {disc_6.name}")
-    print(f"  ✓ {disc_7.name}\n")
+    disc_web = Discipline.objects.create(
+        curriculum=cur_pi_2026,
+        department=dept_it,
+        name="Веб-технологии и разработка интерфейсов",
+        semester=2,
+        control_form="exam",
+        hours_lec=Decimal('30'),
+        hours_pract=Decimal('20'),
+        hours_lab=Decimal('30'),
+        hours_usr=Decimal('10'),
+        control_works=1,
+        credits=Decimal('4')
+    )
+    disc_web.groups.set([group_pi1, group_pi2])
+
+    disc_is = Discipline.objects.create(
+        curriculum=cur_pi_2026,
+        department=dept_it,
+        name="Информационные системы и базы знаний",
+        semester=1,
+        control_form="credit",
+        hours_lec=Decimal('24'),
+        hours_pract=Decimal('16'),
+        hours_lab=Decimal('20'),
+        hours_usr=Decimal('0'),
+        control_works=1,
+        credits=Decimal('3')
+    )
+    disc_is.groups.set([group_pi1, group_pi2])
+
+    # --- 2. Кафедра математики (dept_math) ---
+    disc_matan = Discipline.objects.create(
+        curriculum=cur_pi_2026,
+        department=dept_math,
+        name="Математический анализ",
+        semester=1,
+        control_form="exam",
+        hours_lec=Decimal('40'),
+        hours_pract=Decimal('30'),
+        hours_lab=Decimal('0'),
+        hours_usr=Decimal('10'),
+        control_works=2,
+        credits=Decimal('5')
+    )
+    disc_matan.groups.set([group_pi1, group_pi2, group_pm1])
+
+    disc_geom = Discipline.objects.create(
+        curriculum=cur_pi_2026,
+        department=dept_math,
+        name="Линейная алгебра и аналитическая геометрия",
+        semester=1,
+        control_form="exam",
+        hours_lec=Decimal('30'),
+        hours_pract=Decimal('20'),
+        hours_lab=Decimal('0'),
+        hours_usr=Decimal('0'),
+        control_works=1,
+        credits=Decimal('4')
+    )
+    disc_geom.groups.set([group_pi1, group_pi2, group_pm1])
+
+    disc_discrete = Discipline.objects.create(
+        curriculum=cur_pi_2026,
+        department=dept_math,
+        name="Дискретная математика и теория графов",
+        semester=2,
+        control_form="exam",
+        hours_lec=Decimal('30'),
+        hours_pract=Decimal('20'),
+        hours_lab=Decimal('0'),
+        hours_usr=Decimal('10'),
+        control_works=1,
+        credits=Decimal('4')
+    )
+    disc_discrete.groups.set([group_pi1, group_pi2, group_pm1])
+
+    disc_prob = Discipline.objects.create(
+        curriculum=cur_pi_2026,
+        department=dept_math,
+        name="Теория вероятностей и математическая статистика",
+        semester=2,
+        control_form="credit",
+        hours_lec=Decimal('24'),
+        hours_pract=Decimal('24'),
+        hours_lab=Decimal('0'),
+        hours_usr=Decimal('0'),
+        control_works=1,
+        credits=Decimal('3')
+    )
+    disc_prob.groups.set([group_pi1, group_pi2, group_pm1])
+
+    # --- 3. Кафедра прикладного и системного программирования (dept_pisp) ---
+    disc_prog_intro = Discipline.objects.create(
+        curriculum=cur_po_2026,
+        department=dept_pisp,
+        name="Основы и методологии программирования",
+        semester=1,
+        control_form="exam",
+        hours_lec=Decimal('30'),
+        hours_pract=Decimal('0'),
+        hours_lab=Decimal('40'),
+        hours_usr=Decimal('10'),
+        control_works=1,
+        credits=Decimal('5')
+    )
+    disc_prog_intro.groups.set([group_pi1, group_pi2, group_po1])
+
+    disc_alg = Discipline.objects.create(
+        curriculum=cur_po_2026,
+        department=dept_pisp,
+        name="Алгоритмы и структуры данных",
+        semester=2,
+        control_form="exam",
+        hours_lec=Decimal('30'),
+        hours_pract=Decimal('10'),
+        hours_lab=Decimal('30'),
+        hours_usr=Decimal('10'),
+        control_works=1,
+        credits=Decimal('4')
+    )
+    disc_alg.groups.set([group_pi1, group_pi2, group_po1])
+
+    disc_oop = Discipline.objects.create(
+        curriculum=cur_po_2026,
+        department=dept_pisp,
+        name="Объектно-ориентированное программирование",
+        semester=2,
+        control_form="exam",
+        hours_lec=Decimal('30'),
+        hours_pract=Decimal('0'),
+        hours_lab=Decimal('40'),
+        hours_usr=Decimal('10'),
+        control_works=2,
+        credits=Decimal('5')
+    )
+    disc_oop.groups.set([group_pi1, group_pi2, group_po1])
+
+    disc_arch = Discipline.objects.create(
+        curriculum=cur_po_2026,
+        department=dept_pisp,
+        name="Архитектура вычислительных систем",
+        semester=1,
+        control_form="credit",
+        hours_lec=Decimal('24'),
+        hours_pract=Decimal('0'),
+        hours_lab=Decimal('24'),
+        hours_usr=Decimal('0'),
+        control_works=0,
+        credits=Decimal('3')
+    )
+    disc_arch.groups.set([group_pi1, group_po1])
+
+    print("  ✓ Дисциплины созданы (по 4 дисциплины на каждую из 3 кафедр)\n")
 
     # ============ ДОЛЖНОСТИ ============
     print("👔 Создаю должности...")
@@ -235,7 +339,7 @@ def run():
         position="Доцент",
         min_hours=840,
         max_hours=900,
-        min_lecture_hours=200,
+        min_lecture_hours=100,  # 100 ч согласно заданию
         can_lecture=True
     )
     pos_st_prep = PositionRule.objects.create(
@@ -245,245 +349,333 @@ def run():
         min_lecture_hours=150,
         can_lecture=True
     )
+    pos_assistant = PositionRule.objects.create(
+        position="Ассистент",
+        min_hours=840,
+        max_hours=900,
+        min_lecture_hours=0,
+        can_lecture=False  # без права чтения лекций
+    )
     print(f"  ✓ {pos_prof}")
     print(f"  ✓ {pos_docent}")
-    print(f"  ✓ {pos_st_prep}\n")
+    print(f"  ✓ {pos_st_prep}")
+    print(f"  ✓ {pos_assistant}\n")
 
-    # ============ ПРЕПОДАВАТЕЛИ ============
-    print("👨‍🏫 Создаю преподавателей...\n")
-
-    # Преподавателей нужно привязать к User
-    # Сначала убедиться, что пользователи существуют
-    user_pavlysh, _ = User.objects.get_or_create(
-        username='pavlysh',
-        defaults={'first_name': 'Эдуард', 'last_name': 'Павлыш'}
-    )
-    user_bulgakova, _ = User.objects.get_or_create(
-        username='bulgakova',
-        defaults={'first_name': 'Наталья', 'last_name': 'Булгакова'}
-    )
-    user_prohozhiy, _ = User.objects.get_or_create(
-        username='prohozhiy',
-        defaults={'first_name': 'Сергей', 'last_name': 'Прохожий'}
-    )
-    user_vorobyev, _ = User.objects.get_or_create(
-        username='vorobyev',
-        defaults={'first_name': 'Николай', 'last_name': 'Воробьев'}
-    )
-    user_podoksyonov, _ = User.objects.get_or_create(
-        username='podoksyonov',
-        defaults={'first_name': 'Михаил', 'last_name': 'Подоксёнов'}
-    )
-    user_karaulova, _ = User.objects.get_or_create(
-        username='karaulova',
-        defaults={'first_name': 'Татьяна', 'last_name': 'Караулова'}
-    )
-    user_korchevskaya, _ = User.objects.get_or_create(
-        username='korchevskaya',
-        defaults={'first_name': 'Елена', 'last_name': 'Корчевская'}
-    )
-
-    # Создавать преподавателей
-    teacher_1 = Teacher.objects.create(
-        user=user_pavlysh,
-        full_name="Павлыш Эдуард Владимирович",
-        department=dept_itub,
-        position=pos_docent,
-        degree="candidate",
-        rank="доцент",
-        rate=Decimal('1.0')
-    )
-    teacher_1.specialization.set([disc_7])
-
-    teacher_2 = Teacher.objects.create(
-        user=user_bulgakova,
-        full_name="Булгакова Наталья Валентиновна",
-        department=dept_itub,
-        position=pos_st_prep,
-        degree="none",
-        rank="",
-        rate=Decimal('0.75')
-    )
-    teacher_2.specialization.set([disc_7])
-
-    teacher_3 = Teacher.objects.create(
-        user=user_prohozhiy,
-        full_name="Прохожий Сергей Александрович",
-        department=dept_itub,
-        position=pos_docent,
-        degree="candidate",
-        rank="доцент",
-        rate=Decimal('1.0')
-    )
-    teacher_3.specialization.set([disc_7])
-
-    teacher_4 = Teacher.objects.create(
-        user=user_vorobyev,
-        full_name="Воробьев Николай Тимофеевич",
-        department=dept_math,
-        position=pos_prof,
-        degree="doctor",
-        rank="профессор",
-        rate=Decimal('1.0')
-    )
-    teacher_4.specialization.set([disc_4, disc_5])
-
-    teacher_5 = Teacher.objects.create(
-        user=user_podoksyonov,
-        full_name="Подоксёнов Михаил Николаевич",
-        department=dept_math,
-        position=pos_docent,
-        degree="candidate",
-        rank="доцент",
-        rate=Decimal('1.0')
-    )
-    teacher_5.specialization.set([disc_2, disc_3])
-
-    teacher_6 = Teacher.objects.create(
-        user=user_karaulova,
-        full_name="Караулова Татьяна Борисовна",
-        department=dept_math,
-        position=pos_docent,
-        degree="candidate",
-        rank="доцент",
-        rate=Decimal('1.0')
-    )
-    teacher_6.specialization.set([disc_2])
-
-    teacher_7 = Teacher.objects.create(
-        user=user_korchevskaya,
-        full_name="Корчевская Елена Алексеевна",
-        department=dept_pisp,
-        position=pos_docent,
-        degree="none",
-        rank="",
-        rate=Decimal('1.0')
-    )
-    teacher_7.specialization.set([disc_1, disc_6])
-
-    print(f"  ✓ {teacher_1.full_name} ({teacher_1.position.position}, {dept_itub.name})")
-    print(f"  ✓ {teacher_2.full_name} ({teacher_2.position.position}, {dept_itub.name})")
-    print(f"  ✓ {teacher_3.full_name} ({teacher_3.position.position}, {dept_itub.name})")
-    print(f"  ✓ {teacher_4.full_name} ({teacher_4.position.position}, {dept_math.name})")
-    print(f"  ✓ {teacher_5.full_name} ({teacher_5.position.position}, {dept_math.name})")
-    print(f"  ✓ {teacher_6.full_name} ({teacher_6.position.position}, {dept_math.name})")
-    print(f"  ✓ {teacher_7.full_name} ({teacher_7.position.position}, {dept_pisp.name})\n")
-
-    # Установить зав. кафедрой
-    dept_itub.head = teacher_1
-    dept_itub.save()
-
-    dept_math.head = teacher_6
-    dept_math.save()
-
-    dept_pisp.head = teacher_7
-    dept_pisp.save()
-
-    # ============ ПОЛЬЗОВАТЕЛИ И РОЛИ ============
-    print("🔐 Создаю пользователей и роли...\n")
-
-    # Создать группы ролей (если их нет)
+    # ============ ГРУППЫ ПРАВ (РОЛИ) ============
     group_deputy_dean, _ = UserGroup.objects.get_or_create(name='deputy_dean')
     group_head, _ = UserGroup.objects.get_or_create(name='head')
     group_teacher, _ = UserGroup.objects.get_or_create(name='teacher')
 
-    # Пользователь 1: Зам. декана
-    user_deputy, _ = User.objects.get_or_create(
-        username='deputy_dean',
-        defaults={
-            'first_name': 'Ольга',
-            'last_name': 'Декабрева',
-            'email': 'dekabr@vsu.by',
-        }
-    )
-    user_deputy.is_staff = False
-    user_deputy.set_password('pass123')
-    user_deputy.groups.add(group_deputy_dean)
-    user_deputy.save()
+    # ============ ВЫМЫШЛЕННЫЕ ПРЕПОДАВАТЕЛИ И ПОЛЬЗОВАТЕЛИ ============
+    print("👨‍🏫 Создаю вымышленных преподавателей для каждой кафедры...\n")
 
-    # Пользователь 2: Заведующий кафедрой (через преподавателя)
-    user_head, _ = User.objects.get_or_create(
+    def create_user_and_teacher(username, full_name, department, position, degree, rank, rate, roles, email=None):
+        parts = full_name.split()
+        first_name = parts[1] if len(parts) > 1 else ''
+        last_name = parts[0] if parts else ''
+        user = User.objects.create_user(
+            username=username,
+            password='pass123',
+            first_name=first_name,
+            last_name=last_name,
+            email=email or f"{username}@example.com"
+        )
+        for role in roles:
+            user.groups.add(role)
+
+        teacher = Teacher.objects.create(
+            user=user,
+            full_name=full_name,
+            department=department,
+            position=position,
+            degree=degree,
+            rank=rank,
+            rate=rate
+        )
+        return user, teacher
+
+    # --- 1. Преподаватели кафедры ИТ ---
+    # Зав. кафедрой ИТ (логин head)
+    user_head_it, teacher_head_it = create_user_and_teacher(
         username='head',
-        defaults={
-            'first_name': 'Сергей',
-            'last_name': 'Иванов',
-            'email': 'ivanov@vsu.by',
-        }
-    )
-    user_head.is_staff = False
-    user_head.set_password('pass123')
-    user_head.groups.add(group_head)
-    user_head.save()
-
-    # Привязать к преподавателю (Teacher #1 - Павлыш)
-    # (Создать дополнительного пользователя для этого)
-    teacher_head = Teacher.objects.create(
-        user=user_head,
-        full_name="Иванов Сергей Сергеевич",
-        department=dept_itub,
+        full_name="Смирнов Алексей Иванович",
+        department=dept_it,
         position=pos_docent,
         degree="candidate",
         rank="доцент",
-        rate=Decimal('1.0')
+        rate=Decimal('1.0'),
+        roles=[group_head, group_teacher]
     )
+    dept_it.head = teacher_head_it
+    dept_it.save()
+    teacher_head_it.specialization.set([disc_db, disc_web])
 
-    # Пользователь 3: Преподаватель
-    user_teacher, _ = User.objects.get_or_create(
+    # Основной демо-преподаватель ИТ (логин teacher)
+    user_teacher_it, teacher_it = create_user_and_teacher(
         username='teacher',
-        defaults={
-            'first_name': 'Мария',
-            'last_name': 'Петрова',
-            'email': 'petrova@vsu.by',
-        }
-    )
-    user_teacher.is_staff = False
-    user_teacher.set_password('pass123')
-    user_teacher.groups.add(group_teacher)
-    user_teacher.save()
-
-    demo_teacher = Teacher.objects.create(
-        user=user_teacher,
-        full_name='Петрова Мария',
-        department=dept_itub,
+        full_name="Кузнецова Ольга Дмитриевна",
+        department=dept_it,
         position=pos_st_prep,
-        rate=Decimal('0.75')
+        degree="none",
+        rank="",
+        rate=Decimal('1.0'),
+        roles=[group_teacher]
     )
-    demo_teacher.specialization.set([disc_7])
+    teacher_it.specialization.set([disc_db, disc_net])
 
-    print(f"  ✓ Пользователь deputy_dean (Ольга Декабрева)")
-    print(f"  ✓ Пользователь head (Сергей Иванов) → преподаватель")
-    print(f"  ✓ Пользователь teacher (Мария Петрова) → преподаватель\n")
+    # Ассистент ИТ
+    _, teacher_sokolov = create_user_and_teacher(
+        username='sokolov',
+        full_name="Соколов Роман Павлович",
+        department=dept_it,
+        position=pos_assistant,
+        degree="none",
+        rank="",
+        rate=Decimal('0.5'),
+        roles=[group_teacher]
+    )
+    teacher_sokolov.specialization.set([disc_net, disc_is])
 
-    # ============ ПАРАМЕТРЫ РАСЧЁТА ============
+    # --- 2. Преподаватели кафедры Математики ---
+    # Зав. кафедрой математики (логин head_math)
+    user_head_math, teacher_head_math = create_user_and_teacher(
+        username='head_math',
+        full_name="Васильев Дмитрий Сергеевич",
+        department=dept_math,
+        position=pos_prof,
+        degree="doctor",
+        rank="профессор",
+        rate=Decimal('1.0'),
+        roles=[group_head, group_teacher]
+    )
+    dept_math.head = teacher_head_math
+    dept_math.save()
+    teacher_head_math.specialization.set([disc_matan, disc_discrete])
+
+    # Преподаватель математики (логин teacher_math)
+    _, teacher_math = create_user_and_teacher(
+        username='teacher_math',
+        full_name="Морозов Андрей Николаевич",
+        department=dept_math,
+        position=pos_docent,
+        degree="candidate",
+        rank="доцент",
+        rate=Decimal('1.0'),
+        roles=[group_teacher]
+    )
+    teacher_math.specialization.set([disc_matan, disc_geom])
+
+    # Второй преподаватель математики
+    _, teacher_fedorova = create_user_and_teacher(
+        username='fedorova',
+        full_name="Федорова Екатерина Павловна",
+        department=dept_math,
+        position=pos_docent,
+        degree="candidate",
+        rank="доцент",
+        rate=Decimal('0.75'),
+        roles=[group_teacher]
+    )
+    teacher_fedorova.specialization.set([disc_geom, disc_prob])
+
+    # --- 3. Преподаватели кафедры Программирования ---
+    # Зав. кафедрой программирования (логин head_prog)
+    user_head_prog, teacher_head_prog = create_user_and_teacher(
+        username='head_prog',
+        full_name="Ковалев Роман Михайлович",
+        department=dept_pisp,
+        position=pos_docent,
+        degree="candidate",
+        rank="доцент",
+        rate=Decimal('1.0'),
+        roles=[group_head, group_teacher]
+    )
+    dept_pisp.head = teacher_head_prog
+    dept_pisp.save()
+    teacher_head_prog.specialization.set([disc_prog_intro, disc_arch])
+
+    # Преподаватель программирования (логин teacher_prog)
+    _, teacher_prog = create_user_and_teacher(
+        username='teacher_prog',
+        full_name="Новикова Анна Александровна",
+        department=dept_pisp,
+        position=pos_docent,
+        degree="candidate",
+        rank="доцент",
+        rate=Decimal('1.0'),
+        roles=[group_teacher]
+    )
+    teacher_prog.specialization.set([disc_alg, disc_oop])
+
+    # Старший преподаватель программирования
+    _, teacher_lebedev = create_user_and_teacher(
+        username='lebedev',
+        full_name="Лебедев Максим Игоревич",
+        department=dept_pisp,
+        position=pos_st_prep,
+        degree="none",
+        rank="",
+        rate=Decimal('1.0'),
+        roles=[group_teacher]
+    )
+    teacher_lebedev.specialization.set([disc_prog_intro, disc_oop])
+
+    # --- 4. Зам. декана ---
+    user_deputy = User.objects.create_user(
+        username='deputy_dean',
+        password='pass123',
+        first_name='Елена',
+        last_name='Орлова',
+        email='dekanat@example.com'
+    )
+    user_deputy.groups.add(group_deputy_dean)
+
+    print("✓ Преподаватели и учетные записи созданы:")
+    print("  • ИТ: Смирнов А.И. (head), Кузнецова О.Д. (teacher), Соколов Р.П. (sokolov)")
+    print("  • Математика: Васильев Д.С. (head_math), Морозов А.Н. (teacher_math), Федорова Е.П. (fedorova)")
+    print("  • Программирование: Ковалев Р.М. (head_prog), Новикова А.А. (teacher_prog), Лебедев М.И. (lebedev)")
+    print("  • Деканат: Орлова Е.В. (deputy_dean)\n")
+
+    # ============ ПАРАМЕТРЫ РАСЧЁТА И АВТОРАСЧЁТ НАГРУЗКИ ============
     print("⚙️  Инициализирую параметры расчёта...")
     settings = CalcSettings.get()
-    print(f"  ✓ CalcSettings (exam_hours_per_student: {settings.exam_hours_per_student})\n")
+
+    print("⚡ АВТОМАТИЧЕСКИ РАССЧИТЫВАЮ НАГРУЗКУ ДЛЯ ВСЕХ КАФЕДР...")
+    for dept in Department.objects.all():
+        recalculate_department(dept, settings)
+        count = LoadItem.objects.filter(discipline__department=dept).count()
+        print(f"  ✓ {dept.name}: создано {count} элементов нагрузки")
+    print()
+
+    # ============ ПЕРВОНАЧАЛЬНОЕ РАСПРЕДЕЛЕНИЕ И ДЕМО-ЖУРНАЛ ============
+    print("📋 Выполняю демонстрационное распределение нагрузки...")
+
+    # --- Назначения для кафедры ИТ ---
+    # "Базы данных" (277.95 ч): лекции и экзамен зав. кафедрой, практики и лабы Кузнецовой
+    db_items = LoadItem.objects.filter(discipline=disc_db)
+    for item in db_items:
+        if item.kind in ('lec', 'exam'):
+            item.teacher = teacher_head_it
+            item.save()
+        elif item.kind in ('pract', 'lab', 'usr', 'kr'):
+            item.teacher = teacher_it
+            item.save()
+
+    # "Компьютерные сети": лабораторные отдаем ассистенту Соколову
+    for item in LoadItem.objects.filter(discipline=disc_net, kind='lab'):
+        item.teacher = teacher_sokolov
+        item.save()
+
+    # --- Назначения для кафедры Математики ---
+    matan_items = LoadItem.objects.filter(discipline=disc_matan)
+    for item in matan_items:
+        if item.kind in ('lec', 'exam'):
+            item.teacher = teacher_head_math
+            item.save()
+        elif item.kind in ('pract', 'usr', 'kr'):
+            item.teacher = teacher_math
+            item.save()
+
+    for item in LoadItem.objects.filter(discipline=disc_geom, kind='pract'):
+        item.teacher = teacher_fedorova
+        item.save()
+
+    # --- Назначения для кафедры Программирования ---
+    prog_items = LoadItem.objects.filter(discipline=disc_prog_intro)
+    for item in prog_items:
+        if item.kind in ('lec', 'exam'):
+            item.teacher = teacher_head_prog
+            item.save()
+        elif item.kind in ('lab', 'usr'):
+            item.teacher = teacher_prog
+            item.save()
+
+    for item in LoadItem.objects.filter(discipline=disc_arch, kind='lab'):
+        item.teacher = teacher_lebedev
+        item.save()
+
+    print("  ✓ Нагрузка частично распределена (остальные дисциплины готовы к живому назначению на демо)\n")
+
+    # ============ ДЕМО-ЗАПИСИ ЖУРНАЛА И КОРРЕКТИРОВКИ ============
+    print("📝 Создаю записи в журнале и корректировку плана/факта...")
+    pract_item = LoadItem.objects.filter(teacher=teacher_it, kind='pract').first()
+    lab_item = LoadItem.objects.filter(teacher=teacher_it, kind='lab').first()
+
+    if pract_item:
+        JournalEntry.objects.create(
+            teacher=teacher_it,
+            load_item=pract_item,
+            date=date(2026, 9, 15),
+            time='10:00',
+            hours=Decimal('4'),
+            topic='Проектирование реляционной схемы базы данных'
+        )
+        JournalEntry.objects.create(
+            teacher=teacher_it,
+            load_item=pract_item,
+            date=date(2026, 10, 14),
+            time='10:00',
+            hours=Decimal('4'),
+            topic='Нормализация таблиц до 3НФ и формы Бойса-Кодда'
+        )
+
+    if lab_item:
+        JournalEntry.objects.create(
+            teacher=teacher_it,
+            load_item=lab_item,
+            date=date(2026, 11, 10),
+            time='12:00',
+            hours=Decimal('4'),
+            topic='Составление сложных аналитических запросов с CTE и окнами'
+        )
+
+    Adjustment.objects.create(
+        teacher=teacher_it,
+        discipline=disc_db,
+        kind='pract',
+        month=11,
+        year=2026,
+        hours_delta=Decimal('2'),
+        reason='Дополнительная консультация перед рубежным контролем',
+        planned=False
+    )
+    print("  ✓ Записи журнала и корректировка добавлены\n")
 
     # ============ ИТОГОВАЯ СТАТИСТИКА ============
-    print("=" * 60)
-    print("✅ ВСЕ ДЕМО-ДАННЫЕ ЗАГРУЖЕНЫ")
-    print("=" * 60)
+    total_load_items = LoadItem.objects.count()
+    print("=" * 65)
+    print("✅ ВСЕ ДЕМО-ДАННЫЕ УСПЕШНО ЗАГРУЖЕНЫ И РАССЧИТАНЫ")
+    print("=" * 65)
     print(f"""
-📊 ЗАГРУЖЕНО:
-  • Специальности: 2 (ПИ, ПМ)
+📊 СТАТИСТИКА:
   • Кафедры: 3
-  • Группы: 3 (всего {group_pi1.students_count + group_pi2.students_count + group_pm1.students_count} студентов)
-  • Учебные планы: 2
-  • Дисциплины: 7
-  • Должности: 3
-  • Преподаватели: 9 (7 основных, head и teacher)
-  • Пользователи демо: 3 (deputy_dean, head, teacher)
+  • Дисциплины: 12 (по 4 на каждую кафедру)
+  • Элементов нагрузки: {total_load_items} (сразу рассчитаны и готовы)
+  • Контрольная дисциплина "Базы данных": ровно 277.95 ч
+  • Преподавателей: 9 (все имена вымышлены)
 
-🔐 УЧЁТНЫЕ ДАННЫЕ:
-  deputy_dean / pass123    → Зам. декана (Ольга Декабрева)
-  head       / pass123      → Завед. кафедрой (Сергей Иванов)
-  teacher    / pass123      → Преподаватель (Мария Петрова)
+🔐 УЧЁТНЫЕ ЗАПИСИ ДЛЯ ДЕМОНСТРАЦИИ (пароль у всех: pass123):
+  -------------------------------------------------------------
+  🏛️  Кафедра информационных технологий:
+     head        → Зав. кафедрой (Смирнов А.И.)
+     teacher     → Преподаватель (Кузнецова О.Д.)
+     sokolov     → Ассистент (Соколов Р.П.)
 
-🌐 ОТКРЫТЬ В БРАУЗЕРЕ:
-  http://127.0.0.1:8000/accounts/login/ → Вход в систему
-  http://127.0.0.1:8000/settings/       → Параметры (требует логин)
-  http://127.0.0.1:8000/distribution/   → Распределение (для head)
-  http://127.0.0.1:8000/workload/       → Моя нагрузка (для teacher)
+  🏛️  Кафедра математики:
+     head_math   → Зав. кафедрой (Васильев Д.С.)
+     teacher_math→ Преподаватель (Морозов А.Н.)
+     fedorova    → Доцент (Федорова Е.П.)
 
-📝 ФАКУЛЬТЕТ: ВГУ имени П.М. Машерова, факультет ФМИТ
+  🏛️  Кафедра прикладного и системного программирования:
+     head_prog   → Зав. кафедрой (Ковалев Р.М.)
+     teacher_prog→ Преподаватель (Новикова А.А.)
+     lebedev     → Старший преподаватель (Лебедев М.И.)
+
+  🏛️  Деканат:
+     deputy_dean → Зам. декана (Орлова Е.В.)
+  -------------------------------------------------------------
 """)
+
+
+if __name__ == '__main__':
+    run()

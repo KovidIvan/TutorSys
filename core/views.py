@@ -59,6 +59,8 @@ def add_role_context(context, request):
     context['is_head'] = has_role(user, 'head')
     context['is_teacher'] = has_role(user, 'teacher')
     context['is_authenticated'] = user.is_authenticated
+    if user.is_authenticated and hasattr(user, 'teacher'):
+        context['user_department'] = user.teacher.department
     return context
 
 
