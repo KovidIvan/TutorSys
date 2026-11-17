@@ -7,7 +7,27 @@
 from decimal import Decimal
 from typing import List, Dict
 from django.db.models import Sum
-from .models import LoadItem, Teacher, CalcSettings, Discipline
+from django.db.models.functions import ExtractMonth
+from .models import (
+    LoadItem, Teacher, CalcSettings, Discipline, JournalEntry, Adjustment
+)
+
+# Параметры отчёта план/факт.
+MONTH_NAMES = (
+    'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
+)
+# Семестр, в который попадает месяц (июль и август — каникулы, плана нет).
+MONTH_SEASONS = {
+    1: 'fall', 2: 'spring', 3: 'spring', 4: 'spring', 5: 'spring',
+    6: 'spring', 9: 'fall', 10: 'fall', 11: 'fall', 12: 'fall',
+}
+# План семестра равномерно делится на столько месяцев.
+PLAN_MONTHS_PER_SEASON = Decimal('5')
+# Допуск в часах: отклонение в пределах допуска считается выполнением.
+REPORT_TOLERANCE = Decimal('1')
+# Порядок столбцов отчёта, как в образце из задания.
+REPORT_KIND_ORDER = ('lec', 'pract', 'lab', 'usr', 'kr', 'consult', 'exam', 'credit')
 
 
 # ============ РАСЧЁТ НАГРУЗКИ ПО ДИСЦИПЛИНЕ ============
@@ -131,8 +151,6 @@ def recalculate_department(department, settings: CalcSettings):
     - Назначенный преподаватель сохраняется
     - Новые элементы создаются, лишние удаляются (кроме тех, с записями в журнале)
     """
-    from .models import JournalEntry
-
     disciplines = Discipline.objects.filter(department=department)
 
     for discipline in disciplines:
@@ -286,7 +304,6 @@ def report_for_teacher(teacher: Teacher, year: int = None) -> Dict[str, any]:
     }
     """
     from datetime import datetime
-    from .models import JournalEntry, Adjustment
 
     if year is None:
         year = datetime.now().year
@@ -304,18 +321,14 @@ def report_for_teacher(teacher: Teacher, year: int = None) -> Dict[str, any]:
         )
 
     kinds = {kind for kind, _ in planned_by_kind_and_season}
-    month_seasons = {
-        1: 'fall', 2: 'spring', 3: 'spring', 4: 'spring', 5: 'spring',
-        6: 'spring', 9: 'fall', 10: 'fall', 11: 'fall', 12: 'fall',
-    }
     report = {'teacher': teacher, 'months': {}}
 
     for month in range(1, 13):
         report['months'][month] = {}
-        season = month_seasons.get(month)
+        season = MONTH_SEASONS.get(month)
         for kind in kinds:
             plan_hours = (
-                planned_by_kind_and_season.get((kind, season), Decimal('0')) / Decimal('5')
+                planned_by_kind_and_season.get((kind, season), Decimal('0')) / PLAN_MONTHS_PER_SEASON
                 if season else Decimal('0')
             )
 
@@ -337,13 +350,7 @@ def report_for_teacher(teacher: Teacher, year: int = None) -> Dict[str, any]:
             fact_hours = journal_hours + adjustment_hours
             delta = fact_hours - plan_hours
 
-            # Статус
-            if delta < -Decimal('1'):  # допуск 1 час
-                status = 'under'
-            elif delta > Decimal('1'):
-                status = 'over'
-            else:
-                status = 'ok'
+            status = _delta_status(delta)
 
             report['months'][month][kind] = {
                 'plan': plan_hours,
@@ -353,3 +360,240 @@ def report_for_teacher(teacher: Teacher, year: int = None) -> Dict[str, any]:
             }
 
     return report
+
+
+def _delta_status(delta: Decimal) -> str:
+    """Статус отклонения факта от плана: 'under' / 'ok' / 'over'."""
+    if delta < -REPORT_TOLERANCE:
+        return 'under'
+    if delta > REPORT_TOLERANCE:
+        return 'over'
+    return 'ok'
+
+
+def report_kinds() -> List[tuple]:
+    """Виды работ в порядке столбцов отчёта: [(код, название), ...]."""
+    labels = dict(LoadItem.KIND_CHOICES)
+    ordered = [kind for kind in REPORT_KIND_ORDER if kind in labels]
+    ordered += [kind for kind in labels if kind not in REPORT_KIND_ORDER]
+    return [(kind, labels[kind]) for kind in ordered]
+
+
+def _report_cell(
+    plan: Decimal, fact: Decimal, month: int, kind: str, colored: bool, title: str
+) -> Dict:
+    """Ячейка матрицы. Цвет (css) задаётся только для итоговых ячеек; title — для окна расшифровки."""
+    delta = fact - plan
+    status = _delta_status(delta)
+    css = ''
+    if colored:
+        css = {'under': 'table-danger', 'over': 'table-success'}.get(status, '')
+    return {
+        'month': month,
+        'kind': kind,
+        'plan': plan,
+        'fact': fact,
+        'delta': delta,
+        'status': status,
+        'css': css,
+        'title': title,
+        'has_data': bool(plan or fact),
+    }
+
+
+def build_report_matrix(plan_rows, fact_rows, adjustment_rows, kinds) -> Dict:
+    """
+    Собрать матрицу отчёта «месяц × виды работ» из готовых строк (без обращения к БД).
+
+    plan_rows: словари teacher_id, teacher, discipline_id, discipline, kind, semester, hours
+    fact_rows: словари teacher_id, teacher, discipline_id, discipline, kind, month, hours
+    adjustment_rows: как fact_rows, плюс planned (bool) и reason (str)
+    kinds: [(код, название), ...] — столбцы отчёта
+
+    Возвращает словарь:
+    {
+        'kinds': kinds,
+        'rows': [{'month', 'name', 'cells': [ячейка по видам], 'total': ячейка «Всего»} × 12],
+        'totals': {'cells': [...], 'total': ячейка «Итого за год»},
+        'details': [строки для окна с расшифровкой по клику],
+        'adjustments': [корректировки по месяцам],
+        'has_data': bool,
+    }
+    Ячейка: month, kind, plan, fact, delta, status, css, title, has_data
+    (month = 0 для итогов за год, kind = 'all' для итогов по всем видам).
+    Итоговые ячейки («Всего» по месяцу, итоги по виду и за год) закрашиваются:
+    css = 'table-danger' при недовыполнении, 'table-success' при перевыполнении.
+    """
+    zero = Decimal('0')
+    labels = dict(kinds)
+    kind_codes = [code for code, _ in kinds]
+    items = {}  # (преподаватель, дисциплина, вид, месяц) -> план, факт и причины
+
+    def item_for(row, month):
+        key = (row['teacher_id'], row['discipline_id'], row['kind'], month)
+        item = items.get(key)
+        if item is None:
+            item = items[key] = {
+                'm': month, 'k': row['kind'], 'kn': labels[row['kind']],
+                't': row['teacher_id'], 'tn': row['teacher'],
+                'd': row['discipline_id'], 'dn': row['discipline'],
+                'p': zero, 'f': zero, 'r': [],
+            }
+        return item
+
+    for row in plan_rows:
+        if row['kind'] not in labels:
+            continue
+        season = 'fall' if row['semester'] % 2 else 'spring'
+        part = row['hours'] / PLAN_MONTHS_PER_SEASON
+        for month, month_season in MONTH_SEASONS.items():
+            if month_season == season:
+                item_for(row, month)['p'] += part
+
+    for row in fact_rows:
+        if row['kind'] in labels:
+            item_for(row, row['month'])['f'] += row['hours']
+
+    adjustments = []
+    for row in adjustment_rows:
+        if row['kind'] not in labels:
+            continue
+        item = item_for(row, row['month'])
+        item['f'] += row['hours']
+        item['r'].append({'h': row['hours'], 'text': row['reason'], 'planned': row['planned']})
+        adjustments.append({
+            'month': row['month'],
+            'teacher': row['teacher'],
+            'discipline': row['discipline'],
+            'kind': labels[row['kind']],
+            'hours': row['hours'],
+            'planned': row['planned'],
+            'reason': row['reason'],
+        })
+    adjustments.sort(key=lambda a: (a['month'], a['teacher'], a['discipline'], a['kind']))
+
+    plan_by_cell, fact_by_cell = {}, {}
+    for item in items.values():
+        key = (item['m'], item['k'])
+        plan_by_cell[key] = plan_by_cell.get(key, zero) + item['p']
+        fact_by_cell[key] = fact_by_cell.get(key, zero) + item['f']
+
+    rows = []
+    year_plan = {code: zero for code in kind_codes}
+    year_fact = {code: zero for code in kind_codes}
+    grand_plan = grand_fact = zero
+    for month in range(1, 13):
+        cells = []
+        month_plan = month_fact = zero
+        for code in kind_codes:
+            plan = plan_by_cell.get((month, code), zero)
+            fact = fact_by_cell.get((month, code), zero)
+            cells.append(_report_cell(
+                plan, fact, month, code, colored=False,
+                title=f'{MONTH_NAMES[month - 1]} · {labels[code]}'
+            ))
+            month_plan += plan
+            month_fact += fact
+            year_plan[code] += plan
+            year_fact[code] += fact
+        rows.append({
+            'month': month,
+            'name': MONTH_NAMES[month - 1],
+            'cells': cells,
+            'total': _report_cell(
+                month_plan, month_fact, month, 'all', colored=True,
+                title=f'{MONTH_NAMES[month - 1]} · всего'
+            ),
+        })
+        grand_plan += month_plan
+        grand_fact += month_fact
+
+    totals = {
+        'cells': [
+            _report_cell(
+                year_plan[code], year_fact[code], 0, code, colored=True,
+                title=f'Год · {labels[code]}'
+            )
+            for code in kind_codes
+        ],
+        'total': _report_cell(grand_plan, grand_fact, 0, 'all', colored=True, title='Итого за год'),
+    }
+
+    details = []
+    for item in sorted(items.values(), key=lambda x: (x['m'], x['k'], x['tn'], x['dn'])):
+        if not (item['p'] or item['f'] or item['r']):
+            continue
+        details.append({
+            **item,
+            'p': str(item['p']),
+            'f': str(item['f']),
+            'r': [
+                {'h': str(reason['h']), 'text': reason['text'], 'planned': reason['planned']}
+                for reason in item['r']
+            ],
+        })
+
+    return {
+        'kinds': kinds,
+        'rows': rows,
+        'totals': totals,
+        'details': details,
+        'adjustments': adjustments,
+        'has_data': bool(grand_plan or grand_fact or adjustments),
+    }
+
+
+def report_matrix(teachers, year: int) -> Dict:
+    """
+    Матрица отчёта план/факт за год для одного преподавателя или для группы
+    преподавателей (например, всей кафедры). Формат результата — build_report_matrix.
+    """
+    teacher_list = list(teachers)
+    ids = [teacher.pk for teacher in teacher_list]
+    names = {teacher.pk: teacher.full_name for teacher in teacher_list}
+
+    plan_rows = [
+        {
+            'teacher_id': row['teacher'], 'teacher': names[row['teacher']],
+            'discipline_id': row['discipline'], 'discipline': row['discipline__name'],
+            'kind': row['kind'], 'semester': row['discipline__semester'],
+            'hours': row['total'],
+        }
+        for row in LoadItem.objects.filter(teacher__in=ids)
+        .values('teacher', 'discipline', 'discipline__name', 'discipline__semester', 'kind')
+        .annotate(total=Sum('hours'))
+        .order_by()
+    ]
+
+    fact_rows = [
+        {
+            'teacher_id': row['teacher'], 'teacher': names[row['teacher']],
+            'discipline_id': row['load_item__discipline'],
+            'discipline': row['load_item__discipline__name'],
+            'kind': row['load_item__kind'], 'month': row['month'],
+            'hours': row['total'],
+        }
+        for row in JournalEntry.objects.filter(teacher__in=ids, date__year=year)
+        .annotate(month=ExtractMonth('date'))
+        .values(
+            'teacher', 'load_item__discipline', 'load_item__discipline__name',
+            'load_item__kind', 'month'
+        )
+        .annotate(total=Sum('hours'))
+        .order_by()
+    ]
+
+    adjustment_rows = [
+        {
+            'teacher_id': adjustment.teacher_id, 'teacher': names[adjustment.teacher_id],
+            'discipline_id': adjustment.discipline_id,
+            'discipline': adjustment.discipline.name,
+            'kind': adjustment.kind, 'month': adjustment.month,
+            'hours': adjustment.hours_delta, 'planned': adjustment.planned,
+            'reason': adjustment.reason,
+        }
+        for adjustment in Adjustment.objects.filter(teacher__in=ids, year=year)
+        .select_related('discipline')
+    ]
+
+    return build_report_matrix(plan_rows, fact_rows, adjustment_rows, report_kinds())

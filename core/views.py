@@ -17,7 +17,8 @@ from .models import (
     Adjustment
 )
 from .calculations import (
-    recalculate_department, check_teacher, teacher_total, report_for_teacher
+    recalculate_department, check_teacher, teacher_total, report_matrix,
+    MONTH_NAMES, REPORT_TOLERANCE
 )
 
 
@@ -398,9 +399,48 @@ def journal_view(request):
 
 # ============ ОТЧЁТ ПЛАН/ФАКТ ============
 
+def _report_subject(request, raw_teacher_id):
+    """
+    Определить, чей отчёт строить.
+    Возвращает (кафедра, преподаватели кафедры или None, преподаватель или None, ответ-ошибка или None).
+    Заведующий без teacher_id видит всю кафедру (преподаватель = None);
+    преподаватель всегда видит только себя.
+    """
+    if has_role(request.user, 'head'):
+        try:
+            department = request.user.teacher.department
+        except Teacher.DoesNotExist:
+            return None, None, None, error_page(
+                request, 'Для вашей учётной записи не указана кафедра.', 404
+            )
+        teachers = Teacher.objects.filter(department=department)
+        if not raw_teacher_id:
+            return department, teachers, None, None
+        try:
+            teacher = teachers.filter(pk=int(raw_teacher_id)).first()
+        except (TypeError, ValueError):
+            teacher = None
+        if teacher is None:
+            return None, None, None, error_page(
+                request, 'Преподаватель не найден на вашей кафедре.', 404
+            )
+        return department, teachers, teacher, None
+
+    try:
+        teacher = request.user.teacher
+    except Teacher.DoesNotExist:
+        return None, None, None, error_page(
+            request, 'Вы не зарегистрированы как преподаватель.', 404
+        )
+    return teacher.department, None, teacher, None
+
+
 @login_required
 def report_view(request):
-    """Помесячный отчёт план/факт для преподавателя или заведующего кафедрой."""
+    """
+    Отчёт «Выполнение нагрузки»: матрица «месяц × виды работ» (план/факт) за год.
+    Преподаватель видит свой отчёт, заведующий — всю кафедру или выбранного преподавателя.
+    """
     is_head = has_role(request.user, 'head')
     is_teacher = has_role(request.user, 'teacher')
     if not (is_head or is_teacher):
@@ -417,29 +457,15 @@ def report_view(request):
         year = current_year
         valid_year = False
 
-    if is_head:
-        try:
-            department = request.user.teacher.department
-        except Teacher.DoesNotExist:
-            return error_page(request, 'Для вашей учётной записи не указана кафедра.', 404)
-        teachers = Teacher.objects.filter(department=department).select_related('department')
-        teacher_id = request.POST.get('teacher_id') if request.method == 'POST' else request.GET.get('teacher_id')
-        try:
-            teacher = teachers.filter(pk=int(teacher_id)).first() if teacher_id else teachers.first()
-        except (TypeError, ValueError):
-            teacher = None
-        if teacher is None:
-            return error_page(request, 'На кафедре пока нет преподавателей для отчёта.', 404)
-    else:
-        try:
-            teacher = request.user.teacher
-        except Teacher.DoesNotExist:
-            return error_page(request, 'Вы не зарегистрированы как преподаватель.', 404)
-        teachers = None
+    raw_teacher_id = request.POST.get('teacher_id') if request.method == 'POST' else request.GET.get('teacher_id')
+    department, teachers, teacher, error = _report_subject(request, raw_teacher_id)
+    if error:
+        return error
 
-    load_items = LoadItem.objects.filter(teacher=teacher).select_related('discipline')
     if request.method == 'POST':
-        if request.POST.get('action') == 'add_adjustment' and valid_year:
+        if teacher is None:
+            messages.error(request, 'Выберите преподавателя, чтобы добавить корректировку.')
+        elif request.POST.get('action') == 'add_adjustment' and valid_year:
             try:
                 discipline_id = request.POST.get('discipline_id')
                 kind = request.POST.get('kind')
@@ -475,59 +501,39 @@ def report_view(request):
                 messages.error(request, 'Проверьте месяц, часы и выбранную дисциплину с видом работы.')
 
         redirect_url = f'{request.path}?year={year}'
-        if is_head:
+        if is_head and teacher is not None:
             redirect_url += f'&teacher_id={teacher.pk}'
         return redirect(redirect_url)
 
-    report_data = report_for_teacher(teacher, year)
-    adjustments = Adjustment.objects.filter(
-        teacher=teacher, year=year
-    ).select_related('discipline')
-    adjustments_by_month_kind = {}
-    for adjustment in adjustments:
-        adjustments_by_month_kind.setdefault((adjustment.month, adjustment.kind), []).append(adjustment)
-
-    kind_labels = dict(LoadItem.KIND_CHOICES)
-    month_names = (
-        'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-        'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
-    )
-    months = []
-    for month, kinds in report_data['months'].items():
-        rows = []
-        for kind, values in kinds.items():
-            rows.append({
-                'kind': kind,
-                'kind_display': kind_labels.get(kind, kind),
-                'values': values,
-                'adjustments': adjustments_by_month_kind.get((month, kind), []),
-            })
-        months.append({'number': month, 'name': month_names[month - 1], 'rows': rows})
-
-    disciplines = Discipline.objects.filter(load_items__teacher=teacher).distinct()
-    kind_choices = [
-        (kind, label) for kind, label in LoadItem.KIND_CHOICES
-        if load_items.filter(kind=kind).exists()
-    ]
+    matrix = report_matrix([teacher] if teacher else teachers, year)
     context = {
         'teacher': teacher,
         'teachers': teachers,
+        'department': department,
+        'report_title': teacher.full_name if teacher else 'Вся кафедра',
         'year': year,
-        'months': months,
-        'disciplines': disciplines,
-        'kind_choices': kind_choices,
         'years': sorted(set(range(current_year - 2, current_year + 2)) | {year}),
-        'has_load': bool(kind_choices),
+        'matrix': matrix,
+        'details': {
+            'showTeacher': teacher is None,
+            'tolerance': str(REPORT_TOLERANCE),
+            'rows': matrix['details'],
+        },
+        'tolerance': REPORT_TOLERANCE,
+        'month_choices': [(number, MONTH_NAMES[number - 1]) for number in range(1, 13)],
     }
+    if teacher is not None:
+        planned_kinds = set(LoadItem.objects.filter(teacher=teacher).values_list('kind', flat=True))
+        context['disciplines'] = Discipline.objects.filter(load_items__teacher=teacher).distinct()
+        context['kind_choices'] = [
+            (kind, label) for kind, label in LoadItem.KIND_CHOICES if kind in planned_kinds
+        ]
     context = add_role_context(context, request)
     return render(request, 'core/report.html', context)
 
 
-def xlsx_response(filename, sheet_name, headers, rows):
-    """Сформировать XLSX-файл из заголовков и строк данных."""
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = sheet_name[:31]
+def _fill_sheet(worksheet, headers, rows):
+    """Заполнить лист: шапка, строки (защита от формул), фильтр и ширина столбцов."""
     worksheet.append(headers)
 
     for cell in worksheet[1]:
@@ -548,6 +554,20 @@ def xlsx_response(filename, sheet_name, headers, rows):
         column_letter = column[0].column_letter
         width = max((len(str(cell.value or '')) for cell in column), default=0)
         worksheet.column_dimensions[column_letter].width = min(max(width + 2, 12), 60)
+
+
+def xlsx_response(filename, sheet_name, headers, rows, extra_sheets=()):
+    """
+    Сформировать XLSX-файл из заголовков и строк данных.
+    extra_sheets — дополнительные листы: [(название, заголовки, строки), ...].
+    """
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = sheet_name[:31]
+    _fill_sheet(worksheet, headers, rows)
+
+    for extra_name, extra_headers, extra_rows in extra_sheets:
+        _fill_sheet(workbook.create_sheet(extra_name[:31]), extra_headers, extra_rows)
 
     response = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -663,26 +683,12 @@ def export_excel_view(request, export_type):
             ['Дата', 'Время', 'Дисциплина', 'Вид работы', 'Группа', 'Часы', 'Тема'], rows
         )
 
-    if is_head:
-        try:
-            department = request.user.teacher.department
-        except Teacher.DoesNotExist:
-            return error_page(request, 'Для вашей учётной записи не указана кафедра.', 404)
-        teachers = Teacher.objects.filter(department=department)
-        teacher_id = request.GET.get('teacher_id')
-        try:
-            teacher = teachers.filter(pk=int(teacher_id)).first() if teacher_id else teachers.first()
-        except (TypeError, ValueError):
-            teacher = None
-        if teacher is None:
-            return error_page(request, 'Преподаватель не найден на вашей кафедре.', 404)
-    elif is_teacher:
-        try:
-            teacher = request.user.teacher
-        except Teacher.DoesNotExist:
-            return error_page(request, 'Вы не зарегистрированы как преподаватель.', 404)
-    else:
+    if not (is_head or is_teacher):
         return error_page(request, 'Отчёт доступен преподавателям и заведующим кафедрой.', 403)
+
+    department, teachers, teacher, error = _report_subject(request, request.GET.get('teacher_id'))
+    if error:
+        return error
 
     try:
         year = int(request.GET.get('year', date.today().year))
@@ -691,37 +697,41 @@ def export_excel_view(request, export_type):
     except (TypeError, ValueError):
         return error_page(request, 'Укажите корректный год отчёта.', 400)
 
-    report_data = report_for_teacher(teacher, year)
-    adjustments = Adjustment.objects.filter(teacher=teacher, year=year).select_related('discipline')
-    reasons_by_month_kind = {}
-    for adjustment in adjustments:
-        reasons_by_month_kind.setdefault((adjustment.month, adjustment.kind), []).append(
-            f'{adjustment.discipline.name}: {adjustment.hours_delta} ч — {adjustment.reason}'
+    matrix = report_matrix([teacher] if teacher else teachers, year)
+    cent = Decimal('0.01')
+
+    def matrix_rows(field):
+        rows = [
+            [row['name']]
+            + [cell[field].quantize(cent) for cell in row['cells']]
+            + [row['total'][field].quantize(cent)]
+            for row in matrix['rows']
+        ]
+        rows.append(
+            ['Итого за год']
+            + [cell[field].quantize(cent) for cell in matrix['totals']['cells']]
+            + [matrix['totals']['total'][field].quantize(cent)]
         )
+        return rows
 
-    month_names = (
-        'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-        'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
-    )
-    kind_labels = dict(LoadItem.KIND_CHOICES)
-    rows = []
-    for month, kinds in report_data['months'].items():
-        for kind, values in kinds.items():
-            reasons = reasons_by_month_kind.get((month, kind), [])
-            rows.append((
-                month_names[month - 1],
-                kind_labels.get(kind, kind),
-                values['plan'],
-                values['fact'],
-                values['delta'],
-                values['status'],
-                '\n'.join(reasons)
-            ))
-
-    filename = f'workload_report_{year}.xlsx'
+    headers = ['Месяц'] + [label for _, label in matrix['kinds']] + ['Всего']
+    adjustment_rows = [
+        [
+            MONTH_NAMES[item['month'] - 1], item['teacher'], item['discipline'], item['kind'],
+            item['hours'], 'Плановая' if item['planned'] else 'Внеплановая', item['reason']
+        ]
+        for item in matrix['adjustments']
+    ]
+    filename = f'workload_report_{year}.xlsx' if teacher else f'department_report_{year}.xlsx'
     return xlsx_response(
-        filename, 'План и факт',
-        ['Месяц', 'Вид работы', 'План, ч', 'Факт, ч', 'Отклонение, ч', 'Статус', 'Причины'], rows
+        filename, 'Факт', headers, matrix_rows('fact'),
+        extra_sheets=[
+            ('План', headers, matrix_rows('plan')),
+            ('Отклонение', headers, matrix_rows('delta')),
+            ('Корректировки',
+             ['Месяц', 'Преподаватель', 'Дисциплина', 'Вид работы', 'Часы', 'Тип', 'Причина'],
+             adjustment_rows),
+        ]
     )
 
 

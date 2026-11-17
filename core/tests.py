@@ -2,6 +2,7 @@
 Тесты расчётов и формул нагрузки.
 """
 
+from datetime import date
 from django.test import TestCase
 from django.contrib.auth.models import User, Group as AuthGroup
 from decimal import Decimal
@@ -10,7 +11,8 @@ from .models import (
     PositionRule, Teacher, LoadItem, Adjustment, JournalEntry
 )
 from .calculations import (
-    calc_department_load, recalculate_department, teacher_total, check_teacher, report_for_teacher
+    calc_department_load, recalculate_department, teacher_total, check_teacher,
+    report_for_teacher, report_matrix
 )
 from .views import check_teacher_status
 
@@ -667,6 +669,190 @@ class ReportTestCase(TestCase):
         })
         self.assertEqual(response.status_code, 302)
         self.assertTrue(JournalEntry.objects.filter(load_item=self.load_item).exists())
+
+
+class ReportMatrixTestCase(TestCase):
+    """Матрица отчёта «Выполнение нагрузки»: месяц × виды работ."""
+
+    def setUp(self):
+        self.teacher_group, _ = AuthGroup.objects.get_or_create(name='teacher')
+        self.head_group, _ = AuthGroup.objects.get_or_create(name='head')
+        self.department = Department.objects.create(name='Кафедра матрицы')
+
+        self.head_user = User.objects.create_user(username='matrix_head', password='pass')
+        self.head_user.groups.add(self.head_group)
+        self.head = Teacher.objects.create(
+            user=self.head_user, full_name='Заведующий матрицы', department=self.department
+        )
+        self.user = User.objects.create_user(username='matrix_teacher', password='pass')
+        self.user.groups.add(self.teacher_group)
+        self.teacher = Teacher.objects.create(
+            user=self.user, full_name='Иванов Иван', department=self.department
+        )
+
+        specialty = Specialty.objects.create(code='99.02.02', name='Матрица', abbr='М')
+        curriculum = Curriculum.objects.create(
+            specialty=specialty, admission_year=2025, study_form='full_time'
+        )
+        self.discipline = Discipline.objects.create(
+            curriculum=curriculum, department=self.department,
+            name='Алгебра', semester=1, control_form='exam'
+        )
+        self.other_discipline = Discipline.objects.create(
+            curriculum=curriculum, department=self.department,
+            name='Геометрия', semester=1, control_form='exam'
+        )
+        # Осенний семестр: план делится на 5 месяцев (сентябрь–январь).
+        self.lec = LoadItem.objects.create(
+            discipline=self.discipline, kind='lec', hours=Decimal('90'), teacher=self.teacher
+        )
+        self.head_lec = LoadItem.objects.create(
+            discipline=self.other_discipline, kind='lec', hours=Decimal('45'), teacher=self.head
+        )
+
+    def add_fact(self, year=2026):
+        """Сентябрь: проведено 10 ч из 18. Октябрь: замена коллеги на 30 ч сверх плана."""
+        JournalEntry.objects.create(
+            teacher=self.teacher, load_item=self.lec,
+            date=date(year, 9, 10), hours=Decimal('10'), topic='Тема'
+        )
+        Adjustment.objects.create(
+            teacher=self.teacher, discipline=self.discipline, kind='lec',
+            month=10, year=year, hours_delta=Decimal('30'),
+            reason='Замена коллеги', planned=False
+        )
+
+    def test_matrix_sums_plan_and_fact_and_marks_totals(self):
+        self.add_fact()
+
+        matrix = report_matrix([self.teacher], 2026)
+
+        self.assertEqual(matrix['kinds'][0], ('lec', 'Лекция'))
+        september, october = matrix['rows'][8], matrix['rows'][9]
+        self.assertEqual(september['cells'][0]['plan'], Decimal('18'))
+        self.assertEqual(september['cells'][0]['fact'], Decimal('10'))
+        self.assertEqual(september['total']['css'], 'table-danger')
+        self.assertEqual(october['total']['fact'], Decimal('30'))
+        self.assertEqual(october['total']['css'], 'table-success')
+        self.assertEqual(matrix['rows'][6]['total']['css'], '')  # июль: плана нет
+        self.assertFalse(matrix['rows'][6]['total']['has_data'])
+        self.assertEqual(matrix['totals']['cells'][0]['plan'], Decimal('90'))
+        self.assertEqual(matrix['totals']['total']['plan'], Decimal('90'))
+        self.assertEqual(matrix['totals']['total']['fact'], Decimal('40'))
+        self.assertTrue(matrix['has_data'])
+
+    def test_cells_by_kind_are_not_colored(self):
+        self.add_fact()
+
+        matrix = report_matrix([self.teacher], 2026)
+
+        self.assertTrue(all(cell['css'] == '' for row in matrix['rows'] for cell in row['cells']))
+
+    def test_matrix_ignores_other_years(self):
+        self.add_fact(year=2025)
+
+        matrix = report_matrix([self.teacher], 2026)
+
+        self.assertEqual(matrix['totals']['total']['fact'], Decimal('0'))
+        self.assertEqual(matrix['adjustments'], [])
+
+    def test_department_matrix_sums_all_teachers(self):
+        matrix = report_matrix([self.teacher, self.head], 2026)
+
+        self.assertEqual(matrix['totals']['total']['plan'], Decimal('135'))
+        self.assertEqual(matrix['rows'][8]['cells'][0]['plan'], Decimal('27'))
+        names = {row['tn'] for row in matrix['details']}
+        self.assertEqual(names, {'Иванов Иван', 'Заведующий матрицы'})
+
+    def test_details_contain_discipline_teacher_and_reason(self):
+        self.add_fact()
+
+        matrix = report_matrix([self.teacher], 2026)
+
+        october = [
+            row for row in matrix['details']
+            if row['m'] == 10 and row['k'] == 'lec' and row['d'] == self.discipline.pk
+        ]
+        self.assertEqual(len(october), 1)
+        self.assertEqual(october[0]['tn'], 'Иванов Иван')
+        self.assertEqual(october[0]['dn'], 'Алгебра')
+        self.assertEqual(october[0]['r'], [{'h': '30.00', 'text': 'Замена коллеги', 'planned': False}])
+        self.assertEqual(matrix['adjustments'][0]['reason'], 'Замена коллеги')
+
+    def test_head_sees_whole_department_by_default(self):
+        self.client.force_login(self.head_user)
+
+        response = self.client.get('/report/', {'year': 2026})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Вся кафедра')
+        self.assertEqual(response.context['matrix']['totals']['total']['plan'], Decimal('135'))
+        self.assertTrue(response.context['details']['showTeacher'])
+
+    def test_head_can_pick_single_teacher(self):
+        self.client.force_login(self.head_user)
+
+        response = self.client.get('/report/', {'year': 2026, 'teacher_id': self.teacher.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Иванов Иван')
+        self.assertEqual(response.context['matrix']['totals']['total']['plan'], Decimal('90'))
+        self.assertFalse(response.context['details']['showTeacher'])
+
+    def test_teacher_sees_only_own_matrix(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get('/report/', {'year': 2026, 'teacher_id': self.head.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['matrix']['totals']['total']['plan'], Decimal('90'))
+
+    def test_head_cannot_add_adjustment_for_whole_department(self):
+        self.client.force_login(self.head_user)
+
+        response = self.client.post('/report/', {
+            'action': 'add_adjustment', 'year': 2026,
+            'discipline_id': self.discipline.pk, 'kind': 'lec', 'month': 9,
+            'hours_delta': '2', 'reason': 'Причина',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Adjustment.objects.exists())
+
+    def test_report_export_contains_matrix_sheets(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        self.add_fact()
+        self.client.force_login(self.user)
+
+        response = self.client.get('/export/report/', {'year': 2026})
+
+        self.assertEqual(response.status_code, 200)
+        workbook = load_workbook(BytesIO(response.content))
+        self.assertEqual(workbook.sheetnames, ['Факт', 'План', 'Отклонение', 'Корректировки'])
+        plan = workbook['План']
+        self.assertEqual(plan['A1'].value, 'Месяц')
+        self.assertEqual(plan['B1'].value, 'Лекция')
+        self.assertEqual(plan.cell(row=10, column=1).value, 'Сентябрь')
+        self.assertEqual(plan.cell(row=10, column=2).value, 18)
+        self.assertEqual(plan.cell(row=14, column=1).value, 'Итого за год')
+        self.assertEqual(plan.cell(row=14, column=2).value, 90)
+        self.assertEqual(workbook['Факт'].cell(row=14, column=2).value, 40)
+        self.assertEqual(workbook['Корректировки']['G2'].value, 'Замена коллеги')
+
+    def test_head_export_covers_whole_department(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        self.client.force_login(self.head_user)
+
+        response = self.client.get('/export/report/', {'year': 2026})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('department_report_2026.xlsx', response['Content-Disposition'])
+        workbook = load_workbook(BytesIO(response.content))
+        self.assertEqual(workbook['План'].cell(row=14, column=2).value, 135)
 
 
 class DistributionViewTestCase(TestCase):
