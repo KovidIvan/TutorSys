@@ -5,8 +5,8 @@
     <div class="col-md-8">
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center gap-2">
-                <h4 class="mb-0">📖 Мой журнал учебных занятий</h4>
-                <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'journal' %}">📥 Скачать Excel</a>
+                <h4 class="mb-0">Мой журнал учебных занятий</h4>
+                <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'journal' %}">Скачать Excel</a>
             </div>
             <div class="card-body">
                 {% if journal_entries %}
@@ -55,7 +55,7 @@
     <div class="col-md-4">
         <div class="card mb-4">
             <div class="card-header">
-                <h5 class="mb-0">➕ Добавить запись</h5>
+                <h5 class="mb-0">Добавить запись</h5>
             </div>
             <div class="card-body">
                 {% if load_items %}

@@ -4,8 +4,8 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">📖 Учебная нагрузка — {{ teacher.full_name }}</h4>
-    <a class="btn btn-outline-primary btn-sm" href="{% url 'core:export_excel' 'workload' %}">📥 Скачать Excel</a>
+    <h4 class="mb-0">Учебная нагрузка — {{ teacher.full_name }}</h4>
+    <a class="btn btn-outline-primary btn-sm" href="{% url 'core:export_excel' 'workload' %}">Скачать Excel</a>
 </div>
 
 {% if workload.has_data %}
@@ -46,7 +46,7 @@
         <tfoot>
             {# Итого за осенний семестр #}
             <tr class="table-warning fw-semibold">
-                <td colspan="3">📘 Всего за осенний семестр</td>
+                <td colspan="3">Всего за осенний семестр</td>
                 {% for h in workload.fall_totals_list %}
                     <td class="text-center">{% if h %}{{ h }}{% endif %}</td>
                 {% endfor %}
@@ -55,7 +55,7 @@
 
             {# Итого за весенний семестр #}
             <tr class="table-info fw-semibold">
-                <td colspan="3">📗 Всего за весенний семестр</td>
+                <td colspan="3">Всего за весенний семестр</td>
                 {% for h in workload.spring_totals_list %}
                     <td class="text-center">{% if h %}{{ h }}{% endif %}</td>
                 {% endfor %}
@@ -64,7 +64,7 @@
 
             {# ИТОГО ЗА ГОД #}
             <tr class="table-dark fw-bold">
-                <td colspan="3">🏆 ИТОГО ЗА ГОД</td>
+                <td colspan="3">ИТОГО ЗА ГОД</td>
                 {% for h in workload.grand_totals_list %}
                     <td class="text-center">{% if h %}{{ h }}{% endif %}</td>
                 {% endfor %}
@@ -104,7 +104,7 @@
 
 {% else %}
 <div class="alert alert-info mt-3">
-    👋 Вам ещё не назначена учебная нагрузка. После распределения нагрузки зав. кафедрой здесь появится таблица.
+    Вам ещё не назначена учебная нагрузка. После распределения нагрузки зав. кафедрой здесь появится таблица.
 </div>
 {% endif %}
 {% endblock %}

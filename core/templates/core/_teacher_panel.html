@@ -17,7 +17,7 @@
                                 {% if status == 'ok' %}
                                     <span class="badge bg-success">✓ В норме</span>
                                 {% elif status == 'warning' %}
-                                    <span class="badge bg-warning">⚠ Предупреждение</span>
+                                    <span class="badge bg-warning">Предупреждение</span>
                                 {% else %}
                                     <span class="badge bg-danger">✗ Критично</span>
                                 {% endif %}
@@ -45,5 +45,5 @@
         {% endfor %}
     </div>
 {% else %}
-    <p class="text-muted text-center">🚫 Нет преподавателей в кафедре</p>
+    <p class="text-muted text-center">Нет преподавателей в кафедре</p>
 {% endif %}

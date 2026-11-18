@@ -4,196 +4,83 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Учёт учебной нагрузки{% endblock %}</title>
+    <title>{% block title %}Учёт учебной нагрузки{% endblock %} · S.C.A.L.E</title>
 
     <link href="{% static 'core/vendor/bootstrap.min.css' %}" rel="stylesheet">
+    <link href="{% static 'core/theme.css' %}" rel="stylesheet">
     <script src="{% static 'core/vendor/htmx.min.js' %}" defer></script>
 
     <style>
-        body {
-            background-color: #f8f9fa;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-        .navbar-brand {
-            font-weight: 600;
-        }
-
-        .navbar form .nav-link {
-            border: 0;
-            cursor: pointer;
-        }
-
-        .container-main {
-            margin-top: 30px;
-            margin-bottom: 50px;
-        }
-
-        .card-header {
-            background-color: #007bff;
-            color: white;
-            font-weight: 500;
-        }
-
-        .status-ok {
-            color: #28a745;
-        }
-
-        .status-warning {
-            color: #ffc107;
-        }
-
-        .status-critical {
-            color: #dc3545;
-        }
-
-        .footer {
-            background-color: #f8f9fa;
-            border-top: 1px solid #dee2e6;
-            padding: 20px 0;
-            margin-top: 50px;
-            text-align: center;
-            font-size: 0.9em;
-            color: #6c757d;
-        }
-
-        .sidebar {
-            background-color: white;
-            border-radius: 5px;
-            padding: 15px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .sidebar a {
-            display: block;
-            padding: 10px 15px;
-            margin: 5px 0;
-            border-radius: 4px;
-            text-decoration: none;
-            color: #007bff;
-            transition: all 0.2s;
-        }
-
-        .sidebar a:hover {
-            background-color: #e7f3ff;
-            color: #0056b3;
-        }
-
-        .messages {
-            margin-top: 20px;
-        }
-
-        .alert {
-            border-radius: 5px;
-        }
+        .navbar form .nav-link { border: 0; cursor: pointer; }
+        .status-ok { color: #2e7d5e; }
+        .status-warning { color: #b8924a; }
+        .status-critical { color: #a0343e; }
     </style>
 
     {% block extra_css %}{% endblock %}
 </head>
 <body>
     <!-- Навигация -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+    <nav class="navbar navbar-expand-lg navbar-dark scale-nav">
         <div class="container-fluid">
-            <a class="navbar-brand" href="/">📊 Наглядка</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <a class="scale-brand" href="/">S.C.A.L.E<small>Staff Curriculum &amp; Allocation</small></a>
+            <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
+                <ul class="navbar-nav me-auto ms-lg-4">
                     {% if user.is_authenticated %}
-                        <!-- Меню для зам. декана -->
                         {% if is_deputy_dean %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:dean_dashboard' %}">🏛️ Деканат</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:specialties' %}">🎓 Специальности</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:departments' %}">🏛️ Кафедры</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:groups' %}">👥 Группы</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:curricula' %}">📋 Планы</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:disciplines' %}">📖 Дисциплины</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:settings' %}">⚙️ Параметры</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:report' %}">📊 Отчёт</a>
-                            </li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:dean_dashboard' %}">Деканат</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:specialties' %}">Специальности</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:departments' %}">Кафедры</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:groups' %}">Группы</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:curricula' %}">Планы</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:disciplines' %}">Дисциплины</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:settings' %}">Параметры</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:report' %}">Отчёт</a></li>
                         {% endif %}
                         {% if is_deputy_dean or user.is_staff %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:data_import' %}">📥 Импорт данных</a>
-                            </li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:data_import' %}">Импорт данных</a></li>
                         {% endif %}
 
-                        <!-- Меню для зав. кафедрой -->
                         {% if is_head %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:distribution' %}">📚 Распределение</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:teachers' %}">👥 Преподаватели</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:settings' %}">⚙️ Параметры</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:report' %}">📊 Отчёт</a>
-                            </li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:distribution' %}">Распределение</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:teachers' %}">Преподаватели</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:settings' %}">Параметры</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:report' %}">Отчёт</a></li>
                         {% endif %}
 
-                        <!-- Меню для преподавателя -->
                         {% if is_teacher %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:workload' %}">📖 Моя нагрузка</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:journal' %}">📝 Журнал</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'core:report' %}">📊 Отчёт</a>
-                            </li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:workload' %}">Моя нагрузка</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:journal' %}">Журнал</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:report' %}">Отчёт</a></li>
                         {% endif %}
 
                         {% if user.is_staff %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="/admin/">🔧 Админ</a>
-                            </li>
+                            <li class="nav-item"><a class="nav-link" href="/admin/">Админ</a></li>
                         {% endif %}
                     {% endif %}
                 </ul>
 
-                <ul class="navbar-nav ms-auto">
+                <ul class="navbar-nav ms-auto align-items-lg-center">
                     {% if user.is_authenticated %}
                         <li class="nav-item">
-                            <span class="navbar-text text-white me-3">
-                                👤 {{ user.first_name|default:user.username }}
-                                {% if user_department %}
-                                    <span class="badge bg-secondary ms-1">{{ user_department.name }}</span>
-                                {% endif %}
-                                {% if user_role %}
-                                    <span class="badge bg-info ms-1">{{ user_role|upper }}</span>
-                                {% endif %}
+                            <span class="scale-user me-3">
+                                {{ user.first_name|default:user.username }}
+                                {% if user_department %}<span class="opacity-75">· {{ user_department.name }}</span>{% endif %}
+                                {% if user_role %}<span class="scale-role">{{ user_role }}</span>{% endif %}
                             </span>
                         </li>
-
                         <li class="nav-item">
                             <form method="post" action="{% url 'logout' %}" class="d-inline">
                                 {% csrf_token %}
-                                <button class="nav-link btn btn-outline-danger btn-sm ms-2" type="submit">🚪 Выход</button>
+                                <button class="btn btn-scale-out btn-sm" type="submit">Выход</button>
                             </form>
                         </li>
                     {% else %}
                         <li class="nav-item">
-                            <a class="nav-link btn btn-outline-primary btn-sm" href="{% url 'login' %}">🔑 Вход</a>
+                            <a class="btn btn-scale-out btn-sm" href="{% url 'login' %}">Вход</a>
                         </li>
                     {% endif %}
                 </ul>
@@ -203,7 +90,7 @@
 
     <!-- Сообщения -->
     {% if messages %}
-        <div class="container-fluid container-main">
+        <div class="container-fluid container-main" style="margin-bottom:0">
             <div class="messages">
                 {% for message in messages %}
                     <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
@@ -216,17 +103,12 @@
     {% endif %}
 
     <!-- Основное содержимое -->
-    <div class="container-fluid container-main">
+    <div class="container-fluid container-main px-3 px-lg-4">
         {% block content %}{% endblock %}
     </div>
 
-    <!-- Подвал -->
-    <footer class="footer">
-        <div class="container">
-            💡 Система учёта учебной нагрузки — Прототип для хакатона
-            <br>
-            <small>Django 5.x | SQLite / PostgreSQL | Bootstrap 5 | HTMX</small>
-        </div>
+    <footer class="scale-footer">
+        <b>S.C.A.L.E</b> &nbsp;·&nbsp; Staff Curriculum &amp; Allocation Ledger Engine
     </footer>
 
     <script src="{% static 'core/vendor/bootstrap.bundle.min.js' %}"></script>

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1633"/>
+      <stop offset="0.55" stop-color="#1c2a5e"/>
+      <stop offset="1" stop-color="#2b1d4f"/>
+    </linearGradient>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b6fe0"/>
+      <stop offset="1" stop-color="#7a4fd6"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9b15f"/>
+      <stop offset="1" stop-color="#e58a6b"/>
+    </linearGradient>
+    <linearGradient id="g3" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#22b6c9"/>
+      <stop offset="1" stop-color="#3b6fe0"/>
+    </linearGradient>
+    <linearGradient id="g4" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#b86fd1"/>
+      <stop offset="1" stop-color="#e9a0b8"/>
+    </linearGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="28"/>
+    </filter>
+    <filter id="soft2" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <g filter="url(#soft)">
+    <circle cx="380" cy="260" r="330" fill="url(#g1)" opacity="0.85"/>
+    <ellipse cx="1560" cy="220" rx="380" ry="260" fill="url(#g4)" opacity="0.55"/>
+    <circle cx="1450" cy="860" r="360" fill="url(#g2)" opacity="0.65"/>
+    <ellipse cx="520" cy="900" rx="420" ry="230" fill="url(#g3)" opacity="0.7"/>
+    <circle cx="980" cy="520" r="210" fill="url(#g1)" opacity="0.5"/>
+  </g>
+  <g filter="url(#soft2)" fill="none" stroke-linecap="round">
+    <path d="M-60 700 C 400 520, 700 980, 1200 760 S 1800 520, 2000 640" stroke="url(#g2)" stroke-width="2" opacity="0.55"/>
+    <path d="M-60 760 C 420 580, 720 1040, 1220 820 S 1800 580, 2000 700" stroke="url(#g3)" stroke-width="2" opacity="0.4"/>
+    <circle cx="960" cy="540" r="440" stroke="#ffffff" stroke-width="1.5" opacity="0.14"/>
+    <circle cx="960" cy="540" r="560" stroke="#ffffff" stroke-width="1" opacity="0.09"/>
+  </g>
+</svg>

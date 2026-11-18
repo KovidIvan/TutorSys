@@ -123,7 +123,7 @@ def settings_view(request):
     """
     # Проверка прав доступа
     if not (has_role(request.user, 'deputy_dean') or has_role(request.user, 'head')):
-        return error_page(request, '❌ Доступ запрещён. Только зам. декана и завед. кафедрой могут менять параметры.', 403)
+        return error_page(request, 'Доступ запрещён. Только зам. декана и завед. кафедрой могут менять параметры.', 403)
 
     settings = CalcSettings.get()
     position_rules = PositionRule.objects.all()
@@ -421,7 +421,7 @@ class TeacherForm(forms.ModelForm):
 def teachers_view(request):
     """Список преподавателей кафедры, добавление, правка и удаление. Доступ: зав. кафедрой."""
     if not has_role(request.user, 'head'):
-        return error_page(request, '❌ Доступ запрещён. Страница доступна только зав. кафедрой.', 403)
+        return error_page(request, 'Доступ запрещён. Страница доступна только зав. кафедрой.', 403)
     try:
         department = request.user.teacher.department
     except Teacher.DoesNotExist:
@@ -480,7 +480,7 @@ def distribution_view(request):
     """
     # Проверка прав доступа
     if not has_role(request.user, 'head'):
-        return error_page(request, '❌ Доступ запрещён. Только зав. кафедрой может распределять нагрузку.', 403)
+        return error_page(request, 'Доступ запрещён. Только зав. кафедрой может распределять нагрузку.', 403)
 
     try:
         user_department = request.user.teacher.department
@@ -596,7 +596,7 @@ def workload_view(request):
     Доступ: преподаватель.
     """
     if not has_role(request.user, 'teacher'):
-        return error_page(request, '❌ Доступ запрещён. Это страница только для преподавателей.', 403)
+        return error_page(request, 'Доступ запрещён. Это страница только для преподавателей.', 403)
 
     try:
         teacher = request.user.teacher
@@ -627,7 +627,7 @@ def journal_view(request):
     """
     # Проверка прав доступа
     if not has_role(request.user, 'teacher'):
-        return error_page(request, '❌ Доступ запрещён. Это страница только для преподавателей.', 403)
+        return error_page(request, 'Доступ запрещён. Это страница только для преподавателей.', 403)
 
     try:
         teacher = request.user.teacher
@@ -771,7 +771,7 @@ def report_view(request):
     is_teacher = has_role(request.user, 'teacher')
     is_deputy_dean = has_role(request.user, 'deputy_dean')
     if not (is_head or is_teacher or is_deputy_dean or request.user.is_staff):
-        return error_page(request, '❌ Доступ запрещён. Отчёт доступен преподавателям, заведующим кафедрой и деканату.', 403)
+        return error_page(request, 'Доступ запрещён. Отчёт доступен преподавателям, заведующим кафедрой и деканату.', 403)
 
     current_year = date.today().year
     valid_year = True
@@ -1079,7 +1079,7 @@ def export_excel_view(request, export_type):
 def _require_deputy_dean(request):
     """Проверка прав: только зам. декана или администратор."""
     if not (has_role(request.user, 'deputy_dean') or request.user.is_staff):
-        return error_page(request, '❌ Доступ запрещён. Этот раздел предназначен для заместителя декана.', 403)
+        return error_page(request, 'Доступ запрещён. Этот раздел предназначен для заместителя декана.', 403)
     return None
 
 

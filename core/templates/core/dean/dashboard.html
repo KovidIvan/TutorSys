@@ -4,13 +4,13 @@
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
     <div>
-        <h2 class="h3 mb-1">🏛️ Деканат — Управление структурой и данными</h2>
+        <h2 class="h3 mb-1">Деканат — Управление структурой и данными</h2>
         <div class="text-muted">Справочники факультета, учебные планы, группы и пересчёт нагрузки</div>
     </div>
     <div class="d-flex flex-wrap gap-2">
-        <a href="{% url 'core:data_import' %}" class="btn btn-primary">📥 Импорт из Excel</a>
-        <a href="{% url 'core:settings' %}" class="btn btn-outline-secondary">⚙️ Параметры расчёта</a>
-        <a href="{% url 'core:report' %}" class="btn btn-outline-info">📊 Отчёты нагрузки</a>
+        <a href="{% url 'core:data_import' %}" class="btn btn-primary">Импорт из Excel</a>
+        <a href="{% url 'core:settings' %}" class="btn btn-outline-secondary">Параметры расчёта</a>
+        <a href="{% url 'core:report' %}" class="btn btn-outline-info">Отчёты нагрузки</a>
     </div>
 </div>
 
@@ -68,40 +68,40 @@
     <div class="col-lg-6">
         <div class="card shadow-sm h-100">
             <div class="card-header bg-white py-3">
-                <h5 class="card-title mb-0">📚 Справочники и структура</h5>
+                <h5 class="card-title mb-0">Справочники и структура</h5>
             </div>
             <div class="list-group list-group-flush">
                 <a href="{% url 'core:specialties' %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3">
                     <div>
-                        <div class="fw-bold">🎓 Специальности</div>
+                        <div class="fw-bold">Специальности</div>
                         <small class="text-muted">Коды, наименования, аббревиатуры направлений</small>
                     </div>
                     <span class="badge bg-primary rounded-pill">{{ stats.specialties_count }}</span>
                 </a>
                 <a href="{% url 'core:departments' %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3">
                     <div>
-                        <div class="fw-bold">🏛️ Кафедры</div>
+                        <div class="fw-bold">Кафедры</div>
                         <small class="text-muted">Структурные подразделения и назначение заведующих</small>
                     </div>
                     <span class="badge bg-success rounded-pill">{{ stats.departments_count }}</span>
                 </a>
                 <a href="{% url 'core:groups' %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3">
                     <div>
-                        <div class="fw-bold">👥 Академические группы</div>
+                        <div class="fw-bold">Академические группы</div>
                         <small class="text-muted">Группы, курсы, численность студентов и подгруппы</small>
                     </div>
                     <span class="badge bg-info rounded-pill">{{ stats.groups_count }}</span>
                 </a>
                 <a href="{% url 'core:curricula' %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3">
                     <div>
-                        <div class="fw-bold">📋 Учебные планы</div>
+                        <div class="fw-bold">Учебные планы</div>
                         <small class="text-muted">Планы наборов по годам и формам обучения</small>
                     </div>
                     <span class="badge bg-warning text-dark rounded-pill">{{ stats.curricula_count }}</span>
                 </a>
                 <a href="{% url 'core:disciplines' %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3">
                     <div>
-                        <div class="fw-bold">📖 Дисциплины</div>
+                        <div class="fw-bold">Дисциплины</div>
                         <small class="text-muted">Часы лекций, практик, лабораторных, формы контроля и группы</small>
                     </div>
                     <span class="badge bg-secondary rounded-pill">{{ stats.disciplines_count }}</span>
@@ -113,11 +113,11 @@
     <div class="col-lg-6">
         <div class="card shadow-sm h-100">
             <div class="card-header bg-white py-3">
-                <h5 class="card-title mb-0">⚡ Операции и расчёт</h5>
+                <h5 class="card-title mb-0">Операции и расчёт</h5>
             </div>
             <div class="card-body">
                 <div class="mb-4">
-                    <h6>🔄 Пересчёт нагрузки кафедр</h6>
+                    <h6>Пересчёт нагрузки кафедр</h6>
                     <p class="text-muted small">
                         Выполняет автоматический пересчёт элементов учебной нагрузки на основе учебных планов и действующих нормативов расчёта.
                     </p>
@@ -125,7 +125,7 @@
                         {% csrf_token %}
                         <input type="hidden" name="action" value="recalculate_all">
                         <button type="submit" class="btn btn-warning">
-                            🔄 Пересчитать нагрузку всех кафедр
+                            Пересчитать нагрузку всех кафедр
                         </button>
                     </form>
                 </div>
@@ -133,7 +133,7 @@
                 <hr>
 
                 <div class="mb-4">
-                    <h6>📥 Импорт данных из Excel</h6>
+                    <h6>Импорт данных из Excel</h6>
                     <p class="text-muted small">
                         Быстрая загрузка учебных поручений, дисциплин и групп из файла Excel (.xlsx).
                     </p>
@@ -145,7 +145,7 @@
                 <hr>
 
                 <div>
-                    <h6>📊 Отчёты выполнения нагрузки</h6>
+                    <h6>Отчёты выполнения нагрузки</h6>
                     <p class="text-muted small">
                         Сводные отчёты план/факт по кафедрам и преподавателям с выгрузкой в Excel.
                     </p>

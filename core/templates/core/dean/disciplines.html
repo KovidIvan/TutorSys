@@ -10,7 +10,7 @@
                 <li class="breadcrumb-item active" aria-current="page">Дисциплины</li>
             </ol>
         </nav>
-        <h2 class="h3 mb-0">📖 Дисциплины учебных планов</h2>
+        <h2 class="h3 mb-0">Дисциплины учебных планов</h2>
     </div>
     <a href="{% url 'core:dean_dashboard' %}" class="btn btn-outline-secondary btn-sm">← В панель деканата</a>
 </div>
@@ -35,7 +35,7 @@
                     <div class="col-md-3 d-flex gap-1">
                         <button type="submit" class="btn btn-sm btn-primary w-100">Найти</button>
                         {% if search_query or selected_department or selected_curriculum %}
-                            <a href="{% url 'core:disciplines' %}" class="btn btn-sm btn-outline-secondary" title="Сбросить">✕</a>
+                            <a href="{% url 'core:disciplines' %}" class="btn btn-sm btn-outline-secondary" title="Сбросить"></a>
                         {% endif %}
                     </div>
                 </form>
@@ -103,7 +103,7 @@
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-white py-3">
                 <h5 class="card-title mb-0">
-                    {% if editing %}✏️ Редактирование: {{ editing.name }}{% else %}➕ Добавить дисциплину{% endif %}
+                    {% if editing %}Редактирование: {{ editing.name }}{% else %}Добавить дисциплину{% endif %}
                 </h5>
             </div>
             <div class="card-body">

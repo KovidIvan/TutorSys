@@ -10,7 +10,7 @@
                 <li class="breadcrumb-item active" aria-current="page">Учебные планы</li>
             </ol>
         </nav>
-        <h2 class="h3 mb-0">📋 Учебные планы</h2>
+        <h2 class="h3 mb-0">Учебные планы</h2>
     </div>
     <a href="{% url 'core:dean_dashboard' %}" class="btn btn-outline-secondary btn-sm">← В панель деканата</a>
 </div>
@@ -86,7 +86,7 @@
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-white py-3">
                 <h5 class="card-title mb-0">
-                    {% if editing %}✏️ Редактирование: {{ editing }}{% else %}➕ Добавить учебный план{% endif %}
+                    {% if editing %}Редактирование: {{ editing }}{% else %}Добавить учебный план{% endif %}
                 </h5>
             </div>
             <div class="card-body">
