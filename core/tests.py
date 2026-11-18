@@ -972,8 +972,8 @@ class DistributionViewTestCase(TestCase):
         response = self.client.get('/distribution/')
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, '26ПМ1д, п/г 1')
-        self.assertContains(response, '26ПМ1д, п/г 2')
+        self.assertContains(response, '26ПМ1д-1')
+        self.assertContains(response, '26ПМ1д-2')
 
     def test_distribution_groups_by_specialty_and_marks_specialization(self):
         # Добавляем специализацию целевому преподавателю
@@ -1228,7 +1228,7 @@ class JournalValidationTestCase(TestCase):
         resp = self.client.get('/journal/')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Группа / подгруппа')
-        self.assertContains(resp, 'Гр-Ж1, п/г 1')
+        self.assertContains(resp, 'Гр-Ж1-1')
 
 
 class DeputyDeanAdminAccessTestCase(TestCase):

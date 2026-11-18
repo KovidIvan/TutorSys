@@ -250,7 +250,7 @@ class LoadItemAdmin(admin.ModelAdmin):
         if obj.group:
             info = obj.group.name
             if obj.subgroup_no:
-                info += f' (подгруппа {obj.subgroup_no})'
+                info += f'-{obj.subgroup_no}'
             return info
         return '—'
     group_display.short_description = 'Группа / подгруппа'

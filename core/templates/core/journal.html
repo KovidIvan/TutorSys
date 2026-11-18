@@ -33,7 +33,7 @@
                                         <td>
                                             <small>
                                                 {% if entry.load_item.group %}
-                                                    {{ entry.load_item.group.name }}{% if entry.load_item.subgroup_no %}, п/г {{ entry.load_item.subgroup_no }}{% endif %}
+                                                    {{ entry.load_item.group.name }}{% if entry.load_item.subgroup_no %}-{{ entry.load_item.subgroup_no }}{% endif %}
                                                 {% else %}
                                                     Поток
                                                 {% endif %}
@@ -67,7 +67,7 @@
                             <select name="load_item_id" class="form-select" required>
                                 <option value="">Выберите...</option>
                                 {% for item in load_items %}
-                                    <option value="{{ item.id }}">{{ item.discipline.name }} — {{ item.get_kind_display }} ({% if item.group %}{{ item.group.name }}{% if item.subgroup_no %}, п/г {{ item.subgroup_no }}{% endif %}{% else %}Поток{% endif %})</option>
+                                    <option value="{{ item.id }}">{{ item.discipline.name }} — {{ item.get_kind_display }} ({% if item.group %}{{ item.group.name }}{% if item.subgroup_no %}-{{ item.subgroup_no }}{% endif %}{% else %}Поток{% endif %})</option>
                                 {% endfor %}
                             </select>
                         </div>

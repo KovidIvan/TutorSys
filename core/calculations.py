@@ -307,7 +307,7 @@ def teacher_workload(teacher: Teacher) -> Dict:
             if item.group:
                 label = item.group.name
                 if item.subgroup_no:
-                    label += f'/п{item.subgroup_no}'
+                    label += f'-{item.subgroup_no}'
                 groups_set.add(label)
         groups_str = ', '.join(sorted(groups_set)) if groups_set else 'Поток'
 

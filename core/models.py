@@ -495,7 +495,7 @@ class LoadItem(models.Model):
         if self.group:
             info += f' ({self.group.name}'
             if self.subgroup_no:
-                info += f', подгруппа {self.subgroup_no}'
+                info += f'-{self.subgroup_no}'
             info += ')'
         return info
 
