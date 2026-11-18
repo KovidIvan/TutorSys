@@ -18,6 +18,7 @@
                                     <th>Время</th>
                                     <th>Дисциплина</th>
                                     <th>Вид</th>
+                                    <th>Группа / подгруппа</th>
                                     <th>Часы</th>
                                     <th>Тема</th>
                                 </tr>
@@ -29,6 +30,15 @@
                                         <td>{% if entry.time %}{{ entry.time }}{% else %}-{% endif %}</td>
                                         <td><small>{{ entry.load_item.discipline.name }}</small></td>
                                         <td><span class="badge bg-info">{{ entry.load_item.get_kind_display }}</span></td>
+                                        <td>
+                                            <small>
+                                                {% if entry.load_item.group %}
+                                                    {{ entry.load_item.group.name }}{% if entry.load_item.subgroup_no %}, п/г {{ entry.load_item.subgroup_no }}{% endif %}
+                                                {% else %}
+                                                    Поток
+                                                {% endif %}
+                                            </small>
+                                        </td>
                                         <td>{{ entry.hours }}</td>
                                         <td><small>{{ entry.topic|truncatewords:10 }}</small></td>
                                     </tr>
@@ -57,7 +67,7 @@
                             <select name="load_item_id" class="form-select" required>
                                 <option value="">Выберите...</option>
                                 {% for item in load_items %}
-                                    <option value="{{ item.id }}">{{ item.discipline.name }} - {{ item.get_kind_display }}</option>
+                                    <option value="{{ item.id }}">{{ item.discipline.name }} — {{ item.get_kind_display }} ({% if item.group %}{{ item.group.name }}{% if item.subgroup_no %}, п/г {{ item.subgroup_no }}{% endif %}{% else %}Поток{% endif %})</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -71,7 +81,7 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Часы</label>
-                            <input type="number" name="hours" class="form-control" step="0.5" min="0" required>
+                            <input type="number" name="hours" class="form-control" step="0.5" min="0.1" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Тема занятия</label>

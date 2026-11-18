@@ -10,7 +10,8 @@ from django.contrib.auth.models import Group, User
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from django.db.models import Sum
-from django.http import HttpResponse, JsonResponse
+from django.core.exceptions import ValidationError
+from django.http import HttpResponse, JsonResponse, Http404
 from django.views.decorators.http import require_http_methods
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -437,25 +438,6 @@ def distribution_view(request):
     return render(request, 'core/distribution.html', context)
 
 
-@login_required
-@require_http_methods(["GET"])
-def load_teacher_panel_view(request):
-    """
-    AJAX endpoint: обновить панель преподавателей (для HTMX).
-    """
-    if not has_role(request.user, 'head'):
-        return error_page(request, '❌ Доступ запрещён.', 403)
-
-    try:
-        user_department = request.user.teacher.department
-    except Teacher.DoesNotExist:
-        user_department = None
-
-    return render(request, 'core/_teacher_panel.html', {
-        'teachers_data': _teacher_panel_data(user_department),
-    })
-
-
 # ============ НАГРУЗКА ПРЕПОДАВАТЕЛЯ ============
 
 @login_required
@@ -526,10 +508,10 @@ def journal_view(request):
         teacher=teacher
     ).select_related('discipline', 'group').order_by('discipline')
 
-    # Запросы в журнале
+    # Записи в журнале
     journal_entries = JournalEntry.objects.filter(
         teacher=teacher
-    ).select_related('load_item', 'load_item__discipline').order_by('-date')
+    ).select_related('load_item', 'load_item__discipline', 'load_item__group').order_by('-date', '-time')
 
     if request.method == 'POST':
         action = request.POST.get('action')
@@ -537,25 +519,38 @@ def journal_view(request):
         if action == 'add_entry':
             try:
                 load_item_id = request.POST.get('load_item_id')
-                date = request.POST.get('date')
-                time = request.POST.get('time')
-                hours = request.POST.get('hours')
-                topic = request.POST.get('topic')
+                raw_date = (request.POST.get('date') or '').strip()
+                raw_time = (request.POST.get('time') or '').strip()
+                raw_hours = (request.POST.get('hours') or '').strip()
+                topic = (request.POST.get('topic') or '').strip()
+
+                if not raw_date:
+                    raise ValueError('Дата не указана.')
+                entry_date = date.fromisoformat(raw_date)
+
+                if not raw_hours:
+                    raise ValueError('Часы не указаны.')
+                hours_decimal = Decimal(raw_hours)
+                if hours_decimal <= Decimal('0') or not hours_decimal.is_finite() or hours_decimal > Decimal('999.99'):
+                    raise ValueError('Некорректное значение часов.')
+
+                if not topic:
+                    raise ValueError('Тема не указана.')
 
                 load_item = get_object_or_404(LoadItem, pk=load_item_id, teacher=teacher)
 
                 JournalEntry.objects.create(
                     teacher=teacher,
                     load_item=load_item,
-                    date=date,
-                    time=time if time else None,
-                    hours=hours,
+                    date=entry_date,
+                    time=raw_time if raw_time else None,
+                    hours=hours_decimal,
                     topic=topic
                 )
 
                 messages.success(request, 'Запись в журнал добавлена.')
-            except Exception as e:
-                messages.error(request, f'Ошибка при добавлении запроса: {e}')
+            except (ValueError, ValidationError, InvalidOperation, Http404):
+                messages.error(request, 'Не удалось добавить запись: проверьте дату и часы.')
 
         return redirect('core:journal')
 
@@ -906,39 +901,4 @@ def export_excel_view(request, export_type):
     )
 
 
-@login_required
-@require_http_methods(["GET"])
-def load_kinds_for_discipline_view(request):
-    """
-    AJAX endpoint: получить виды работ для дисциплины (для зависимого списка).
-    """
-    if not has_role(request.user, 'teacher'):
-        return JsonResponse({'error': 'Access denied'}, status=403)
 
-    try:
-        teacher = request.user.teacher
-    except:
-        return JsonResponse({'error': 'Not a teacher'}, status=404)
-
-    load_item_id = request.GET.get('load_item_id')
-
-    try:
-        load_item = LoadItem.objects.get(
-            pk=load_item_id,
-            teacher=teacher
-        )
-
-        # Получить все элементы этой дисциплины для этого преподавателя
-        discipline_items = LoadItem.objects.filter(
-            discipline=load_item.discipline,
-            teacher=teacher
-        ).values_list('id', 'get_kind_display').distinct()
-
-        items_list = [
-            {'id': item[0], 'kind': item[1]}
-            for item in discipline_items
-        ]
-
-        return JsonResponse({'items': items_list})
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=400)

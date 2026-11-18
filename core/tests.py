@@ -1116,3 +1116,70 @@ class DepartmentRecalculateViewTestCase(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertFalse(LoadItem.objects.filter(discipline__department=self.dept_a).exists())
         self.assertTrue(LoadItem.objects.filter(discipline__department=self.dept_b).exists())
+
+
+class JournalValidationTestCase(TestCase):
+    """Тесты валидации записей журнала (задача T6)."""
+
+    def setUp(self):
+        self.group_teacher, _ = AuthGroup.objects.get_or_create(name='teacher')
+        self.dept = Department.objects.create(name='Кафедра Журнала')
+        self.spec = Specialty.objects.create(code='02.02.02', name='СпецЖурнал', abbr='СЖ')
+        self.curriculum = Curriculum.objects.create(specialty=self.spec, admission_year=2026, study_form='full_time')
+        self.group = Group.objects.create(name='Гр-Ж1', specialty=self.spec, course=1, students_count=20, subgroups_count=2)
+        self.discipline = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.dept, name='Дисциплина Журнала',
+            semester=1, control_form='exam', hours_lec=Decimal('30')
+        )
+        self.discipline.groups.add(self.group)
+
+        self.user = User.objects.create_user('teacher_j', password='pass')
+        self.user.groups.add(self.group_teacher)
+        self.teacher = Teacher.objects.create(
+            user=self.user, full_name='Преподаватель Журнала', department=self.dept, rate=Decimal('1.0')
+        )
+        self.load_item = LoadItem.objects.create(
+            discipline=self.discipline, kind='lab', group=self.group, subgroup_no=1,
+            hours=Decimal('20'), teacher=self.teacher
+        )
+
+    def test_journal_rejects_negative_or_zero_hours(self):
+        self.client.login(username='teacher_j', password='pass')
+        payload = {
+            'action': 'add_entry',
+            'load_item_id': self.load_item.id,
+            'date': '2026-10-15',
+            'topic': 'Тема 1',
+        }
+        # Ноль часов
+        resp = self.client.post('/journal/', {**payload, 'hours': '0'})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(JournalEntry.objects.filter(load_item=self.load_item).exists())
+
+        # Отрицательные часы
+        resp = self.client.post('/journal/', {**payload, 'hours': '-2.5'})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(JournalEntry.objects.filter(load_item=self.load_item).exists())
+
+    def test_journal_rejects_invalid_date(self):
+        self.client.login(username='teacher_j', password='pass')
+        resp = self.client.post('/journal/', {
+            'action': 'add_entry',
+            'load_item_id': self.load_item.id,
+            'date': 'not-a-date',
+            'hours': '2',
+            'topic': 'Тема 2',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(JournalEntry.objects.filter(load_item=self.load_item).exists())
+
+    def test_journal_page_renders_group_column(self):
+        self.client.login(username='teacher_j', password='pass')
+        JournalEntry.objects.create(
+            teacher=self.teacher, load_item=self.load_item, date=date(2026, 10, 15),
+            hours=Decimal('2'), topic='Тестовое занятие'
+        )
+        resp = self.client.get('/journal/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Группа / подгруппа')
+        self.assertContains(resp, 'Гр-Ж1, п/г 1')

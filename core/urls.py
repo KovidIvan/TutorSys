@@ -13,7 +13,6 @@ urlpatterns = [
 
     # Распределение нагрузки
     path('distribution/', views.distribution_view, name='distribution'),
-    path('distribution/panel/', views.load_teacher_panel_view, name='load_teacher_panel'),
 
     # Преподаватели кафедры
     path('teachers/', views.teachers_view, name='teachers'),
@@ -23,7 +22,6 @@ urlpatterns = [
 
     # Журнал
     path('journal/', views.journal_view, name='journal'),
-    path('journal/kinds/', views.load_kinds_for_discipline_view, name='load_kinds'),
 
     # Отчёт
     path('report/', views.report_view, name='report'),
