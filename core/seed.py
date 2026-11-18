@@ -521,12 +521,22 @@ def run():
     teacher_lebedev.specialization.set([disc_prog_intro, disc_oop])
 
     # --- 4. Зам. декана ---
+    from django.contrib.contenttypes.models import ContentType
+    from django.contrib.auth.models import Permission
+
+    ref_models = [Specialty, Group, Curriculum, Discipline, Department]
+    for model in ref_models:
+        ct = ContentType.objects.get_for_model(model)
+        perms = Permission.objects.filter(content_type=ct)
+        group_deputy_dean.permissions.add(*perms)
+
     user_deputy = User.objects.create_user(
         username='deputy_dean',
         password='pass123',
         first_name='Елена',
         last_name='Орлова',
-        email='dekanat@example.com'
+        email='dekanat@example.com',
+        is_staff=True
     )
     user_deputy.groups.add(group_deputy_dean)
 

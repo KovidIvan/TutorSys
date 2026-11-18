@@ -104,7 +104,28 @@
                         <!-- Меню для зам. декана -->
                         {% if is_deputy_dean %}
                             <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:dean_dashboard' %}">🏛️ Деканат</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:specialties' %}">🎓 Специальности</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:departments' %}">🏛️ Кафедры</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:groups' %}">👥 Группы</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:curricula' %}">📋 Планы</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:disciplines' %}">📖 Дисциплины</a>
+                            </li>
+                            <li class="nav-item">
                                 <a class="nav-link" href="{% url 'core:settings' %}">⚙️ Параметры</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:report' %}">📊 Отчёт</a>
                             </li>
                         {% endif %}
                         {% if is_deputy_dean or user.is_staff %}

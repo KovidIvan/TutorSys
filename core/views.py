@@ -19,8 +19,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from .models import (
     CalcSettings, PositionRule, Discipline, Department, Teacher, LoadItem, JournalEntry,
-    Adjustment
+    Adjustment, Specialty, Curriculum, Group as AcademicGroup
 )
+from .forms import SpecialtyForm, DepartmentForm, GroupForm, CurriculumForm, DisciplineForm
 from .calculations import (
     recalculate_department, check_teacher, teacher_total, teacher_workload,
     report_matrix, MONTH_NAMES, REPORT_TOLERANCE
@@ -69,7 +70,7 @@ def add_role_context(context, request):
 @login_required
 def home_view(request):
     if has_role(request.user, 'deputy_dean'):
-        return redirect('core:settings')
+        return redirect('core:dean_dashboard')
     if has_role(request.user, 'head'):
         return redirect('core:distribution')
     if has_role(request.user, 'teacher'):
@@ -704,7 +705,33 @@ def _report_subject(request, raw_teacher_id):
     Возвращает (кафедра, преподаватели кафедры или None, преподаватель или None, ответ-ошибка или None).
     Заведующий без teacher_id видит всю кафедру (преподаватель = None);
     преподаватель всегда видит только себя.
+    Заместитель декана может выбирать любую кафедру и преподавателя.
     """
+    if has_role(request.user, 'deputy_dean') or request.user.is_staff:
+        raw_dept_id = request.POST.get('department_id') if request.method == 'POST' else request.GET.get('department_id')
+        dept_queryset = Department.objects.all().order_by('name')
+        department = None
+        if raw_dept_id:
+            try:
+                department = dept_queryset.filter(pk=int(raw_dept_id)).first()
+            except (TypeError, ValueError):
+                department = None
+        if not department:
+            department = dept_queryset.first()
+
+        teachers = Teacher.objects.filter(department=department) if department else Teacher.objects.none()
+        if not raw_teacher_id:
+            return department, teachers, None, None
+        try:
+            teacher = Teacher.objects.filter(pk=int(raw_teacher_id)).first()
+        except (TypeError, ValueError):
+            teacher = None
+        if teacher is None:
+            return None, None, None, error_page(
+                request, 'Преподаватель не найден.', 404
+            )
+        return teacher.department, teachers, teacher, None
+
     if has_role(request.user, 'head'):
         try:
             department = request.user.teacher.department
@@ -742,8 +769,9 @@ def report_view(request):
     """
     is_head = has_role(request.user, 'head')
     is_teacher = has_role(request.user, 'teacher')
-    if not (is_head or is_teacher):
-        return error_page(request, '❌ Доступ запрещён. Отчёт доступен преподавателям и заведующим кафедрой.', 403)
+    is_deputy_dean = has_role(request.user, 'deputy_dean')
+    if not (is_head or is_teacher or is_deputy_dean or request.user.is_staff):
+        return error_page(request, '❌ Доступ запрещён. Отчёт доступен преподавателям, заведующим кафедрой и деканату.', 403)
 
     current_year = date.today().year
     valid_year = True
@@ -774,8 +802,8 @@ def report_view(request):
                 if (
                     not 1 <= month <= 12
                     or not hours_delta.is_finite()
-                    or not hours_delta
-                    or abs(hours_delta) > Decimal('999.99')
+                    or hours_delta <= Decimal('0')
+                    or hours_delta > Decimal('999.99')
                     or max(-hours_delta.as_tuple().exponent, 0) > 2
                     or not reason
                 ):
@@ -820,6 +848,7 @@ def report_view(request):
         },
         'tolerance': REPORT_TOLERANCE,
         'month_choices': [(number, MONTH_NAMES[number - 1]) for number in range(1, 13)],
+        'all_departments': Department.objects.order_by('name') if (is_deputy_dean or request.user.is_staff) else None,
     }
     if teacher is not None:
         planned_kinds = set(LoadItem.objects.filter(teacher=teacher).values_list('kind', flat=True))
@@ -993,8 +1022,8 @@ def export_excel_view(request, export_type):
             ['Дата', 'Время', 'Дисциплина', 'Вид работы', 'Группа', 'Часы', 'Тема'], rows
         )
 
-    if not (is_head or is_teacher):
-        return error_page(request, 'Отчёт доступен преподавателям и заведующим кафедрой.', 403)
+    if not (is_head or is_teacher or has_role(request.user, 'deputy_dean') or request.user.is_staff):
+        return error_page(request, 'Отчёт доступен преподавателям, заведующим кафедрой и деканату.', 403)
 
     department, teachers, teacher, error = _report_subject(request, request.GET.get('teacher_id'))
     if error:
@@ -1043,6 +1072,274 @@ def export_excel_view(request, export_type):
              adjustment_rows),
         ]
     )
+
+
+# ============ ДЕКАНАТ (интерфейс зам. декана) ============
+
+def _require_deputy_dean(request):
+    """Проверка прав: только зам. декана или администратор."""
+    if not (has_role(request.user, 'deputy_dean') or request.user.is_staff):
+        return error_page(request, '❌ Доступ запрещён. Этот раздел предназначен для заместителя декана.', 403)
+    return None
+
+
+@login_required
+def dean_dashboard_view(request):
+    """Главная панель деканата со статистикой и быстрыми ссылками."""
+    access_error = _require_deputy_dean(request)
+    if access_error:
+        return access_error
+
+    stats = {
+        'specialties_count': Specialty.objects.count(),
+        'departments_count': Department.objects.count(),
+        'groups_count': AcademicGroup.objects.count(),
+        'curricula_count': Curriculum.objects.count(),
+        'disciplines_count': Discipline.objects.count(),
+    }
+    context = add_role_context({'stats': stats}, request)
+    return render(request, 'core/dean/dashboard.html', context)
+
+
+@login_required
+def specialties_view(request):
+    """Справочник специальностей: список, добавление, редактирование, удаление."""
+    access_error = _require_deputy_dean(request)
+    if access_error:
+        return access_error
+
+    editing = None
+    edit_id = request.GET.get('edit')
+    if edit_id:
+        editing = get_object_or_404(Specialty, pk=edit_id)
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'delete':
+            spec_id = request.POST.get('specialty_id')
+            spec = get_object_or_404(Specialty, pk=spec_id)
+            name = spec.name
+            spec.delete()
+            messages.success(request, f'Специальность «{name}» успешно удалена.')
+            return redirect('core:specialties')
+
+        if action == 'save':
+            spec_id = request.POST.get('specialty_id')
+            instance = get_object_or_404(Specialty, pk=spec_id) if spec_id else None
+            form = SpecialtyForm(request.POST, instance=instance)
+            if form.is_valid():
+                form.save()
+                messages.success(request, 'Специальность сохранена.')
+                return redirect('core:specialties')
+    else:
+        form = SpecialtyForm(instance=editing)
+
+    context = add_role_context({
+        'specialties': Specialty.objects.all().order_by('code'),
+        'form': form,
+        'editing': editing,
+    }, request)
+    return render(request, 'core/dean/specialties.html', context)
+
+
+@login_required
+def departments_view(request):
+    """Справочник кафедр: список, добавление, редактирование, удаление."""
+    access_error = _require_deputy_dean(request)
+    if access_error:
+        return access_error
+
+    editing = None
+    edit_id = request.GET.get('edit')
+    if edit_id:
+        editing = get_object_or_404(Department, pk=edit_id)
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'delete':
+            dept_id = request.POST.get('department_id')
+            dept = get_object_or_404(Department, pk=dept_id)
+            name = dept.name
+            dept.delete()
+            messages.success(request, f'Кафедра «{name}» успешно удалена.')
+            return redirect('core:departments')
+
+        if action == 'save':
+            dept_id = request.POST.get('department_id')
+            instance = get_object_or_404(Department, pk=dept_id) if dept_id else None
+            form = DepartmentForm(request.POST, instance=instance)
+            if form.is_valid():
+                form.save()
+                messages.success(request, 'Кафедра сохранена.')
+                return redirect('core:departments')
+    else:
+        form = DepartmentForm(instance=editing)
+
+    context = add_role_context({
+        'departments': Department.objects.select_related('head').order_by('name'),
+        'form': form,
+        'editing': editing,
+    }, request)
+    return render(request, 'core/dean/departments.html', context)
+
+
+@login_required
+def groups_view(request):
+    """Справочник групп: список с фильтром по специальности, добавление, редактирование, удаление."""
+    access_error = _require_deputy_dean(request)
+    if access_error:
+        return access_error
+
+    selected_specialty = request.GET.get('specialty', '').strip()
+    groups_qs = AcademicGroup.objects.select_related('specialty').order_by('course', 'name')
+    if selected_specialty:
+        groups_qs = groups_qs.filter(specialty_id=selected_specialty)
+
+    editing = None
+    edit_id = request.GET.get('edit')
+    if edit_id:
+        editing = get_object_or_404(AcademicGroup, pk=edit_id)
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'delete':
+            group_id = request.POST.get('group_id')
+            grp = get_object_or_404(AcademicGroup, pk=group_id)
+            name = grp.name
+            grp.delete()
+            messages.success(request, f'Группа «{name}» успешно удалена.')
+            return redirect('core:groups')
+
+        if action == 'save':
+            group_id = request.POST.get('group_id')
+            instance = get_object_or_404(AcademicGroup, pk=group_id) if group_id else None
+            form = GroupForm(request.POST, instance=instance)
+            if form.is_valid():
+                form.save()
+                messages.success(request, 'Группа сохранена.')
+                return redirect('core:groups')
+    else:
+        form = GroupForm(instance=editing)
+
+    context = add_role_context({
+        'groups': groups_qs,
+        'specialties': Specialty.objects.order_by('name'),
+        'selected_specialty': selected_specialty,
+        'form': form,
+        'editing': editing,
+    }, request)
+    return render(request, 'core/dean/groups.html', context)
+
+
+@login_required
+def curricula_view(request):
+    """Учебные планы: список, добавление, редактирование, удаление."""
+    access_error = _require_deputy_dean(request)
+    if access_error:
+        return access_error
+
+    selected_specialty = request.GET.get('specialty', '').strip()
+    curricula_qs = Curriculum.objects.select_related('specialty').prefetch_related('disciplines').order_by('-admission_year', 'specialty__code')
+    if selected_specialty:
+        curricula_qs = curricula_qs.filter(specialty_id=selected_specialty)
+
+    editing = None
+    edit_id = request.GET.get('edit')
+    if edit_id:
+        editing = get_object_or_404(Curriculum, pk=edit_id)
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'delete':
+            cur_id = request.POST.get('curriculum_id')
+            cur = get_object_or_404(Curriculum, pk=cur_id)
+            str_repr = str(cur)
+            cur.delete()
+            messages.success(request, f'Учебный план «{str_repr}» успешно удалён.')
+            return redirect('core:curricula')
+
+        if action == 'save':
+            cur_id = request.POST.get('curriculum_id')
+            instance = get_object_or_404(Curriculum, pk=cur_id) if cur_id else None
+            form = CurriculumForm(request.POST, instance=instance)
+            if form.is_valid():
+                form.save()
+                messages.success(request, 'Учебный план сохранён.')
+                return redirect('core:curricula')
+    else:
+        form = CurriculumForm(instance=editing)
+
+    context = add_role_context({
+        'curricula': curricula_qs,
+        'specialties': Specialty.objects.order_by('name'),
+        'selected_specialty': selected_specialty,
+        'form': form,
+        'editing': editing,
+    }, request)
+    return render(request, 'core/dean/curricula.html', context)
+
+
+@login_required
+def disciplines_view(request):
+    """Справочник дисциплин: список с поиском и фильтрацией, добавление, редактирование, удаление."""
+    access_error = _require_deputy_dean(request)
+    if access_error:
+        return access_error
+
+    disciplines_qs = Discipline.objects.select_related(
+        'curriculum__specialty', 'department'
+    ).prefetch_related('groups').order_by('name', 'semester')
+
+    search_query = request.GET.get('q', '').strip()
+    if search_query:
+        disciplines_qs = disciplines_qs.filter(name__icontains=search_query)
+
+    selected_department = request.GET.get('department', '').strip()
+    if selected_department:
+        disciplines_qs = disciplines_qs.filter(department_id=selected_department)
+
+    selected_curriculum = request.GET.get('curriculum', '').strip()
+    if selected_curriculum:
+        disciplines_qs = disciplines_qs.filter(curriculum_id=selected_curriculum)
+
+    editing = None
+    edit_id = request.GET.get('edit')
+    if edit_id:
+        editing = get_object_or_404(Discipline, pk=edit_id)
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        if action == 'delete':
+            disc_id = request.POST.get('discipline_id')
+            disc = get_object_or_404(Discipline, pk=disc_id)
+            name = disc.name
+            disc.delete()
+            messages.success(request, f'Дисциплина «{name}» успешно удалена.')
+            return redirect('core:disciplines')
+
+        if action == 'save':
+            disc_id = request.POST.get('discipline_id')
+            instance = get_object_or_404(Discipline, pk=disc_id) if disc_id else None
+            form = DisciplineForm(request.POST, instance=instance)
+            if form.is_valid():
+                form.save()
+                messages.success(request, 'Дисциплина сохранена.')
+                return redirect('core:disciplines')
+    else:
+        form = DisciplineForm(instance=editing)
+
+    context = add_role_context({
+        'disciplines': disciplines_qs,
+        'departments': Department.objects.order_by('name'),
+        'curricula': Curriculum.objects.select_related('specialty').order_by('specialty__code', 'admission_year'),
+        'selected_department': selected_department,
+        'selected_curriculum': selected_curriculum,
+        'search_query': search_query,
+        'form': form,
+        'editing': editing,
+    }, request)
+    return render(request, 'core/dean/disciplines.html', context)
+
 
 
 

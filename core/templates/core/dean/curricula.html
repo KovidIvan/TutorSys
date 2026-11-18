@@ -1,0 +1,122 @@
+{% extends 'core/base.html' %}
+{% block title %}Учебные планы — Деканат{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item"><a href="{% url 'core:dean_dashboard' %}">Деканат</a></li>
+                <li class="breadcrumb-item active" aria-current="page">Учебные планы</li>
+            </ol>
+        </nav>
+        <h2 class="h3 mb-0">📋 Учебные планы</h2>
+    </div>
+    <a href="{% url 'core:dean_dashboard' %}" class="btn btn-outline-secondary btn-sm">← В панель деканата</a>
+</div>
+
+<div class="row">
+    <!-- Список планов -->
+    <div class="col-lg-7">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header bg-white py-3">
+                <div class="row align-items-center g-2">
+                    <div class="col-md">
+                        <h5 class="card-title mb-0">Список учебных планов ({{ curricula|length }})</h5>
+                    </div>
+                    <div class="col-md-auto">
+                        <form method="get" class="d-flex gap-2">
+                            <select name="specialty" class="form-select form-select-sm" onchange="this.form.submit()">
+                                <option value="">Все специальности</option>
+                                {% for s in specialties %}
+                                    <option value="{{ s.pk }}" {% if selected_specialty == s.pk|stringformat:"i" %}selected{% endif %}>{{ s.abbr }}</option>
+                                {% endfor %}
+                            </select>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Специальность</th>
+                            <th class="text-center">Год набора</th>
+                            <th class="text-center">Форма</th>
+                            <th class="text-center">Дисциплин</th>
+                            <th class="text-end">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cur in curricula %}
+                            <tr {% if editing and editing.pk == cur.pk %}class="table-active"{% endif %}>
+                                <td class="fw-bold">
+                                    {{ cur.specialty.code }} — {{ cur.specialty.name }} ({{ cur.specialty.abbr }})
+                                </td>
+                                <td class="text-center fw-semibold">{{ cur.admission_year }}</td>
+                                <td class="text-center"><span class="badge bg-light text-dark border">{{ cur.get_study_form_display }}</span></td>
+                                <td class="text-center">
+                                    <a href="{% url 'core:disciplines' %}?curriculum={{ cur.pk }}" class="badge bg-primary text-decoration-none" title="Посмотреть дисциплины плана">
+                                        {{ cur.disciplines.count }} дисциплин →
+                                    </a>
+                                </td>
+                                <td class="text-end text-nowrap">
+                                    <a href="?edit={{ cur.pk }}" class="btn btn-sm btn-outline-primary">Изменить</a>
+                                    <form method="post" class="d-inline" onsubmit="return confirm('Удалить учебный план «{{ cur|escapejs }}»? Все связанные дисциплины также будут удалены!');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="delete">
+                                        <input type="hidden" name="curriculum_id" value="{{ cur.pk }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Удалить</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">Учебных планов пока нет</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Форма создания / редактирования -->
+    <div class="col-lg-5">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white py-3">
+                <h5 class="card-title mb-0">
+                    {% if editing %}✏️ Редактирование: {{ editing }}{% else %}➕ Добавить учебный план{% endif %}
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="save">
+                    {% if editing %}
+                        <input type="hidden" name="curriculum_id" value="{{ editing.pk }}">
+                    {% endif %}
+
+                    {% for field in form %}
+                        <div class="mb-3">
+                            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                            {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                        </div>
+                    {% endfor %}
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            {% if editing %}Сохранить изменения{% else %}Создать учебный план{% endif %}
+                        </button>
+                        {% if editing %}
+                            <a href="{% url 'core:curricula' %}" class="btn btn-outline-secondary">Отмена</a>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

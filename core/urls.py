@@ -8,6 +8,14 @@ from . import views
 app_name = 'core'
 
 urlpatterns = [
+    # Деканат (интерфейс заместителя декана)
+    path('dean/', views.dean_dashboard_view, name='dean_dashboard'),
+    path('dean/specialties/', views.specialties_view, name='specialties'),
+    path('dean/departments/', views.departments_view, name='departments'),
+    path('dean/groups/', views.groups_view, name='groups'),
+    path('dean/curricula/', views.curricula_view, name='curricula'),
+    path('dean/disciplines/', views.disciplines_view, name='disciplines'),
+
     # Параметры расчёта и импорт исходных данных
     path('settings/', views.settings_view, name='settings'),
     path('data-import/', views.data_import_view, name='data_import'),

@@ -1,0 +1,139 @@
+{% extends 'core/base.html' %}
+{% block title %}Дисциплины — Деканат{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item"><a href="{% url 'core:dean_dashboard' %}">Деканат</a></li>
+                <li class="breadcrumb-item active" aria-current="page">Дисциплины</li>
+            </ol>
+        </nav>
+        <h2 class="h3 mb-0">📖 Дисциплины учебных планов</h2>
+    </div>
+    <a href="{% url 'core:dean_dashboard' %}" class="btn btn-outline-secondary btn-sm">← В панель деканата</a>
+</div>
+
+<div class="row">
+    <!-- Список дисциплин -->
+    <div class="col-lg-7">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header bg-white py-3">
+                <form method="get" class="row g-2 align-items-center">
+                    <div class="col-md-5">
+                        <input type="search" name="q" value="{{ search_query }}" class="form-control form-control-sm" placeholder="Поиск по названию...">
+                    </div>
+                    <div class="col-md-4">
+                        <select name="department" class="form-select form-select-sm" onchange="this.form.submit()">
+                            <option value="">Все кафедры</option>
+                            {% for d in departments %}
+                                <option value="{{ d.pk }}" {% if selected_department == d.pk|stringformat:"i" %}selected{% endif %}>{{ d.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3 d-flex gap-1">
+                        <button type="submit" class="btn btn-sm btn-primary w-100">Найти</button>
+                        {% if search_query or selected_department or selected_curriculum %}
+                            <a href="{% url 'core:disciplines' %}" class="btn btn-sm btn-outline-secondary" title="Сбросить">✕</a>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
+            <div class="table-responsive" style="max-height: 700px; overflow-y: auto;">
+                <table class="table table-hover table-sm align-middle mb-0">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th>Дисциплина</th>
+                            <th>План / Кафедра</th>
+                            <th class="text-center">Сем.</th>
+                            <th class="text-center">Контроль</th>
+                            <th class="text-center">Часы (Л/П/Лаб)</th>
+                            <th class="text-end">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for disc in disciplines %}
+                            <tr {% if editing and editing.pk == disc.pk %}class="table-active"{% endif %}>
+                                <td>
+                                    <div class="fw-semibold">{{ disc.name }}</div>
+                                    <small class="text-muted">
+                                        {% for g in disc.groups.all %}<span class="badge bg-light text-dark border me-1">{{ g.name }}</span>{% empty %}Группы не привязаны{% endfor %}
+                                    </small>
+                                </td>
+                                <td>
+                                    <div class="small fw-semibold">{{ disc.curriculum.specialty.abbr }} (набор {{ disc.curriculum.admission_year }})</div>
+                                    <div class="small text-muted">{{ disc.department.name }}</div>
+                                </td>
+                                <td class="text-center">{{ disc.semester }}</td>
+                                <td class="text-center">
+                                    <span class="badge {% if disc.control_form == 'exam' %}bg-danger{% elif disc.control_form == 'credit' %}bg-success{% else %}bg-secondary{% endif %}">
+                                        {{ disc.get_control_form_display }}
+                                    </span>
+                                </td>
+                                <td class="text-center text-nowrap small">
+                                    <strong>{{ disc.hours_lec }}</strong> / {{ disc.hours_pract }} / {{ disc.hours_lab }}
+                                </td>
+                                <td class="text-end text-nowrap">
+                                    <a href="?edit={{ disc.pk }}" class="btn btn-sm btn-outline-primary">Изменить</a>
+                                    <form method="post" class="d-inline" onsubmit="return confirm('Удалить дисциплину «{{ disc.name|escapejs }}»?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="delete">
+                                        <input type="hidden" name="discipline_id" value="{{ disc.pk }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Удалить</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-4">Дисциплин не найдено</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer bg-white text-muted small py-2">
+                Всего найдено: {{ disciplines|length }}
+            </div>
+        </div>
+    </div>
+
+    <!-- Форма создания / редактирования -->
+    <div class="col-lg-5">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white py-3">
+                <h5 class="card-title mb-0">
+                    {% if editing %}✏️ Редактирование: {{ editing.name }}{% else %}➕ Добавить дисциплину{% endif %}
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="save">
+                    {% if editing %}
+                        <input type="hidden" name="discipline_id" value="{{ editing.pk }}">
+                    {% endif %}
+
+                    {% for field in form %}
+                        <div class="mb-3">
+                            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                            {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                        </div>
+                    {% endfor %}
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            {% if editing %}Сохранить изменения{% else %}Создать дисциплину{% endif %}
+                        </button>
+                        {% if editing %}
+                            <a href="{% url 'core:disciplines' %}" class="btn btn-outline-secondary">Отмена</a>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1404,3 +1404,150 @@ class WorkloadPageTestCase(TestCase):
         response = self.client.get('/workload/')
         self.assertContains(response, 'Дисц Осень')
         self.assertContains(response, 'Дисц Весна')
+
+
+class DeputyDeanUITestCase(TestCase):
+    """Тесты обычного UI для роли заместителя декана (deputy_dean) и ввода часов."""
+
+    def setUp(self):
+        self.group_deputy, _ = AuthGroup.objects.get_or_create(name='deputy_dean')
+        self.group_head, _ = AuthGroup.objects.get_or_create(name='head')
+        self.group_teacher, _ = AuthGroup.objects.get_or_create(name='teacher')
+
+        self.user_deputy = User.objects.create_user('deputy_ui', password='pass')
+        self.user_deputy.groups.add(self.group_deputy)
+
+        self.user_teacher = User.objects.create_user('teacher_ui', password='pass')
+        self.user_teacher.groups.add(self.group_teacher)
+
+        self.dept = Department.objects.create(name='Тестовая кафедра UI')
+        self.spec = Specialty.objects.create(code='09.03.01', name='Информатика', abbr='ИВТ')
+        self.curriculum = Curriculum.objects.create(specialty=self.spec, admission_year=2026, study_form='full_time')
+        self.acad_group = Group.objects.create(name='ИВТ-26-1', specialty=self.spec, course=1, students_count=25, subgroups_count=2)
+        self.discipline = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.dept, name='Алгоритмы', semester=1, control_form='exam', hours_lec=Decimal('34')
+        )
+        self.teacher = Teacher.objects.create(user=self.user_teacher, full_name='Иванов И.И.', department=self.dept, rate=Decimal('1.0'))
+        self.load_item = LoadItem.objects.create(discipline=self.discipline, kind='lec', hours=Decimal('34'), teacher=self.teacher)
+
+    def test_dean_pages_require_deputy_dean(self):
+        urls = [
+            '/dean/',
+            '/dean/specialties/',
+            '/dean/departments/',
+            '/dean/groups/',
+            '/dean/curricula/',
+            '/dean/disciplines/',
+        ]
+        # Преподавателю доступ запрещён
+        self.client.login(username='teacher_ui', password='pass')
+        for url in urls:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 403, f'Ожидался 403 для {url}')
+
+        # Заместителю декана доступ разрешён
+        self.client.login(username='deputy_ui', password='pass')
+        for url in urls:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200, f'Ожидался 200 для {url}')
+
+    def test_dean_home_redirects_to_dean_dashboard(self):
+        self.client.login(username='deputy_ui', password='pass')
+        response = self.client.get('/')
+        self.assertRedirects(response, '/dean/')
+
+    def test_specialty_crud(self):
+        self.client.login(username='deputy_ui', password='pass')
+        # Создание
+        resp = self.client.post('/dean/specialties/', {
+            'action': 'save',
+            'code': '01.03.02',
+            'name': 'Прикладная математика и информатика',
+            'abbr': 'ПМИ',
+        })
+        self.assertEqual(resp.status_code, 302)
+        new_spec = Specialty.objects.filter(code='01.03.02').first()
+        self.assertIsNotNone(new_spec)
+        self.assertEqual(new_spec.abbr, 'ПМИ')
+
+        # Редактирование
+        resp = self.client.post('/dean/specialties/', {
+            'action': 'save',
+            'specialty_id': new_spec.pk,
+            'code': '01.03.02',
+            'name': 'ПМИ (Обновлено)',
+            'abbr': 'ПМИ-2',
+        })
+        self.assertEqual(resp.status_code, 302)
+        new_spec.refresh_from_db()
+        self.assertEqual(new_spec.abbr, 'ПМИ-2')
+
+        # Удаление
+        resp = self.client.post('/dean/specialties/', {
+            'action': 'delete',
+            'specialty_id': new_spec.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Specialty.objects.filter(code='01.03.02').exists())
+
+    def test_department_crud(self):
+        self.client.login(username='deputy_ui', password='pass')
+        # Создание
+        resp = self.client.post('/dean/departments/', {
+            'action': 'save',
+            'name': 'Новая Кафедра',
+        })
+        self.assertEqual(resp.status_code, 302)
+        new_dept = Department.objects.filter(name='Новая Кафедра').first()
+        self.assertIsNotNone(new_dept)
+
+        # Удаление
+        resp = self.client.post('/dean/departments/', {
+            'action': 'delete',
+            'department_id': new_dept.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Department.objects.filter(name='Новая Кафедра').exists())
+
+    def test_deputy_dean_has_access_to_report_and_export(self):
+        self.client.login(username='deputy_ui', password='pass')
+        # Просмотр отчёта
+        resp = self.client.get('/report/')
+        self.assertEqual(resp.status_code, 200)
+
+        # Выгрузка отчёта в Excel
+        resp = self.client.get('/export/report/')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_report_adjustment_accepts_positive_decimal_hours(self):
+        self.client.login(username='teacher_ui', password='pass')
+        year = date.today().year
+
+        # Ввод положительных часов с любым значением (например, 1.5 часа)
+        resp = self.client.post('/report/', {
+            'action': 'add_adjustment',
+            'year': year,
+            'discipline_id': self.discipline.pk,
+            'kind': 'lec',
+            'month': 10,
+            'hours_delta': '1.5',
+            'reason': 'Проведение доп. лекции',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(Adjustment.objects.filter(
+            teacher=self.teacher, discipline=self.discipline, hours_delta=Decimal('1.5')
+        ).exists())
+
+        # Отклонение неположительных часов (0 или отрицательные)
+        resp = self.client.post('/report/', {
+            'action': 'add_adjustment',
+            'year': year,
+            'discipline_id': self.discipline.pk,
+            'kind': 'lec',
+            'month': 10,
+            'hours_delta': '-1.5',
+            'reason': 'Отрицательные часы',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Adjustment.objects.filter(hours_delta=Decimal('-1.5')).exists())
+
