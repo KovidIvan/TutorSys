@@ -72,7 +72,7 @@
                                     </span>
                                 </td>
                                 <td class="text-center text-nowrap small">
-                                    <strong>{{ disc.hours_lec }}</strong> / {{ disc.hours_pract }} / {{ disc.hours_lab }}
+                                    <strong>{{ disc.hours_lec|floatformat:"-2" }}</strong> / {{ disc.hours_pract|floatformat:"-2" }} / {{ disc.hours_lab|floatformat:"-2" }}
                                 </td>
                                 <td class="text-end text-nowrap">
                                     <a href="?edit={{ disc.pk }}" class="btn btn-sm btn-outline-primary">Изменить</a>

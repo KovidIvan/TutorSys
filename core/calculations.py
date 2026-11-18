@@ -277,6 +277,7 @@ def teacher_workload(teacher: Teacher) -> Dict:
 
     # Собираем по дисциплинам
     disc_data: Dict = {}
+    cent = Decimal('0.01')
     for row in agg:
         disc_id = row['discipline']
         if disc_id not in disc_data:
@@ -289,8 +290,9 @@ def teacher_workload(teacher: Teacher) -> Dict:
             }
         kind = row['kind']
         if kind in kind_codes:
-            disc_data[disc_id]['hours'][kind] = disc_data[disc_id]['hours'].get(kind, zero) + row['total']
-            disc_data[disc_id]['total'] += row['total']
+            val = Decimal(str(row['total'])).quantize(cent)
+            disc_data[disc_id]['hours'][kind] = (disc_data[disc_id]['hours'].get(kind, zero) + val).quantize(cent)
+            disc_data[disc_id]['total'] = (disc_data[disc_id]['total'] + val).quantize(cent)
 
     # Получаем объекты дисциплин для отображения
     from .models import Discipline as _Discipline
@@ -335,11 +337,11 @@ def teacher_workload(teacher: Teacher) -> Dict:
     for row in rows:
         totals = fall_totals if row['season'] == 'fall' else spring_totals
         for k in kind_codes:
-            h = row['hours'].get(k, zero)
-            totals[k] += h
-            grand_totals[k] += h
-        totals['total'] += row['total']
-        grand_totals['total'] += row['total']
+            h = row['hours'].get(k, zero).quantize(cent)
+            totals[k] = (totals[k] + h).quantize(cent)
+            grand_totals[k] = (grand_totals[k] + h).quantize(cent)
+        totals['total'] = (totals['total'] + row['total']).quantize(cent)
+        grand_totals['total'] = (grand_totals['total'] + row['total']).quantize(cent)
 
     kinds = [(k, labels[k]) for k in kind_codes]
 

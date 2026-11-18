@@ -3,6 +3,7 @@
 """
 
 from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth import logout, views as auth_views
 from django.contrib.auth.decorators import login_required
 from django import forms
 from django.contrib import messages
@@ -33,7 +34,15 @@ from .importers import WorkloadImportError, import_workload_xlsx
 
 def error_page(request, message, code=403):
     """Показать страницу ошибки (доступ запрещён, не найдено и т. п.)."""
-    return render(request, 'core/error.html', {'message': message, 'code': code}, status=code)
+    context = add_role_context({'message': message, 'code': code}, request)
+    return render(request, 'core/error.html', context, status=code)
+
+
+def login_view(request, *args, **kwargs):
+    """Страница входа: при открытии страницы логина сбрасывает предыдущую активную сессию."""
+    if request.method == 'GET' and request.user.is_authenticated:
+        logout(request)
+    return auth_views.LoginView.as_view()(request, *args, **kwargs)
 
 
 def has_role(user, role_name):

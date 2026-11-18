@@ -3,80 +3,88 @@
 {% block title %}Моя нагрузка{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">Учебная нагрузка — {{ teacher.full_name }}</h4>
-    <a class="btn btn-outline-primary btn-sm" href="{% url 'core:export_excel' 'workload' %}">Скачать Excel</a>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+    <div>
+        <h2 class="h3 mb-1">Учебная нагрузка — {{ teacher.full_name }}</h2>
+        <div class="text-muted">Распределение часов по дисциплинам, видам работ и семестрам</div>
+    </div>
+    <a class="btn btn-primary btn-sm" href="{% url 'core:export_excel' 'workload' %}">Скачать Excel</a>
 </div>
 
 {% if workload.has_data %}
-<div class="table-responsive">
-    <table class="table table-bordered table-hover table-sm align-middle" style="font-size: 0.88rem;">
-        <thead class="table-dark">
-            <tr>
-                <th>Дисциплина</th>
-                <th class="text-center">Сем.</th>
-                <th>Группы</th>
-                {% for _, label in workload.kinds %}
-                    <th class="text-center">{{ label }}</th>
-                {% endfor %}
-                <th class="text-center">Всего</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in workload.rows %}
-                <tr class="{% if row.season == 'fall' %}table-light{% endif %}">
-                    <td>
-                        <span class="fw-semibold">{{ row.discipline.name }}</span>
-                        {% if row.discipline.curriculum.specialty %}
-                            <div class="text-muted" style="font-size: 0.75rem;">
-                                {{ row.discipline.curriculum.specialty.abbr }}, сем. {{ row.semester }}
-                            </div>
-                        {% endif %}
-                    </td>
-                    <td class="text-center">{{ row.semester }}</td>
-                    <td><small>{{ row.groups }}</small></td>
-                    {% for h in row.hours_list %}
-                        <td class="text-center">{% if h %}{{ h }}{% endif %}</td>
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-white py-3">
+        <h5 class="card-title mb-0">Дисциплины и часы нагрузки</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover table-sm align-middle mb-0" style="font-size: 0.9rem;">
+            <thead class="table-light">
+                <tr>
+                    <th>Дисциплина</th>
+                    <th class="text-center">Сем.</th>
+                    <th>Группы</th>
+                    {% for _, label in workload.kinds %}
+                        <th class="text-center">{{ label }}</th>
                     {% endfor %}
-                    <td class="text-center fw-bold">{{ row.total }}</td>
+                    <th class="text-center">Всего</th>
                 </tr>
-            {% endfor %}
-        </tbody>
-
-        <tfoot>
-            {# Итого за осенний семестр #}
-            <tr class="table-warning fw-semibold">
-                <td colspan="3">Всего за осенний семестр</td>
-                {% for h in workload.fall_totals_list %}
-                    <td class="text-center">{% if h %}{{ h }}{% endif %}</td>
+            </thead>
+            <tbody>
+                {% for row in workload.rows %}
+                    <tr>
+                        <td>
+                            <span class="fw-semibold">{{ row.discipline.name }}</span>
+                            {% if row.discipline.curriculum.specialty %}
+                                <div class="text-muted" style="font-size: 0.78rem;">
+                                    {{ row.discipline.curriculum.specialty.abbr }}, сем. {{ row.semester }}
+                                </div>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">{{ row.semester }}</td>
+                        <td><small>{{ row.groups }}</small></td>
+                        {% for h in row.hours_list %}
+                            <td class="text-center">{% if h %}{{ h|floatformat:"-2" }}{% endif %}</td>
+                        {% endfor %}
+                        <td class="text-center fw-bold">{{ row.total|floatformat:"-2" }}</td>
+                    </tr>
                 {% endfor %}
-                <td class="text-center fw-bold">{{ workload.fall_totals_total }}</td>
-            </tr>
+            </tbody>
 
-            {# Итого за весенний семестр #}
-            <tr class="table-info fw-semibold">
-                <td colspan="3">Всего за весенний семестр</td>
-                {% for h in workload.spring_totals_list %}
-                    <td class="text-center">{% if h %}{{ h }}{% endif %}</td>
-                {% endfor %}
-                <td class="text-center fw-bold">{{ workload.spring_totals_total }}</td>
-            </tr>
+            <tfoot>
+                {# Итого за осенний семестр #}
+                <tr class="table-primary fw-semibold">
+                    <td colspan="3">Всего за осенний семестр</td>
+                    {% for h in workload.fall_totals_list %}
+                        <td class="text-center">{% if h %}{{ h|floatformat:"-2" }}{% endif %}</td>
+                    {% endfor %}
+                    <td class="text-center fw-bold">{{ workload.fall_totals_total|floatformat:"-2" }}</td>
+                </tr>
 
-            {# ИТОГО ЗА ГОД #}
-            <tr class="table-dark fw-bold">
-                <td colspan="3">ИТОГО ЗА ГОД</td>
-                {% for h in workload.grand_totals_list %}
-                    <td class="text-center">{% if h %}{{ h }}{% endif %}</td>
-                {% endfor %}
-                <td class="text-center">{{ workload.grand_totals_total }}</td>
-            </tr>
-        </tfoot>
-    </table>
+                {# Итого за весенний семестр #}
+                <tr class="table-primary fw-semibold">
+                    <td colspan="3">Всего за весенний семестр</td>
+                    {% for h in workload.spring_totals_list %}
+                        <td class="text-center">{% if h %}{{ h|floatformat:"-2" }}{% endif %}</td>
+                    {% endfor %}
+                    <td class="text-center fw-bold">{{ workload.spring_totals_total|floatformat:"-2" }}</td>
+                </tr>
+
+                {# ИТОГО ЗА ГОД #}
+                <tr class="table-secondary fw-bold">
+                    <td colspan="3">ИТОГО ЗА ГОД</td>
+                    {% for h in workload.grand_totals_list %}
+                        <td class="text-center">{% if h %}{{ h|floatformat:"-2" }}{% endif %}</td>
+                    {% endfor %}
+                    <td class="text-center">{{ workload.grand_totals_total|floatformat:"-2" }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
 </div>
 
-<div class="row mt-3">
+<div class="row g-3 mt-1">
     <div class="col-md-4">
-        <div class="card border-primary">
+        <div class="card shadow-sm border-primary h-100">
             <div class="card-body text-center">
                 <h6 class="card-title text-muted">Всего назначено часов</h6>
                 <div class="display-5 fw-bold text-primary">{{ total_hours|floatformat:"-2" }}</div>
@@ -85,26 +93,28 @@
         </div>
     </div>
     <div class="col-md-4">
-        <div class="card border-warning">
+        <div class="card shadow-sm border-primary h-100">
             <div class="card-body text-center">
                 <h6 class="card-title text-muted">Осенний семестр</h6>
-                <div class="display-5 fw-bold text-warning">{{ workload.fall_totals_total }}</div>
+                <div class="display-5 fw-bold text-primary">{{ workload.fall_totals_total|floatformat:"-2" }}</div>
             </div>
         </div>
     </div>
     <div class="col-md-4">
-        <div class="card border-info">
+        <div class="card shadow-sm border-info h-100">
             <div class="card-body text-center">
                 <h6 class="card-title text-muted">Весенний семестр</h6>
-                <div class="display-5 fw-bold text-info">{{ workload.spring_totals_total }}</div>
+                <div class="display-5 fw-bold text-primary">{{ workload.spring_totals_total|floatformat:"-2" }}</div>
             </div>
         </div>
     </div>
 </div>
 
 {% else %}
-<div class="alert alert-info mt-3">
-    Вам ещё не назначена учебная нагрузка. После распределения нагрузки зав. кафедрой здесь появится таблица.
+<div class="card shadow-sm mt-3">
+    <div class="card-body text-center py-4 text-muted">
+        Вам ещё не назначена учебная нагрузка. После распределения нагрузки зав. кафедрой здесь появится таблица.
+    </div>
 </div>
 {% endif %}
 {% endblock %}

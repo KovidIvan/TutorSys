@@ -39,7 +39,7 @@
                                                 {% endif %}
                                             </small>
                                         </td>
-                                        <td>{{ entry.hours }}</td>
+                                        <td>{{ entry.hours|floatformat:"-2" }}</td>
                                         <td><small>{{ entry.topic|truncatewords:10 }}</small></td>
                                     </tr>
                                 {% endfor %}

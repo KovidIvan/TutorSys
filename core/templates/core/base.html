@@ -7,7 +7,7 @@
     <title>{% block title %}Учёт учебной нагрузки{% endblock %} · S.C.A.L.E</title>
 
     <link href="{% static 'core/vendor/bootstrap.min.css' %}" rel="stylesheet">
-    <link href="{% static 'core/theme.css' %}?v=4" rel="stylesheet">
+    <link href="{% static 'core/theme.css' %}?v=5" rel="stylesheet">
     <script src="{% static 'core/vendor/htmx.min.js' %}" defer></script>
 
     <style>
@@ -37,8 +37,6 @@
                             <li class="nav-item"><a class="nav-link" href="{% url 'core:groups' %}">Группы</a></li>
                             <li class="nav-item"><a class="nav-link" href="{% url 'core:curricula' %}">Планы</a></li>
                             <li class="nav-item"><a class="nav-link" href="{% url 'core:disciplines' %}">Дисциплины</a></li>
-                            <li class="nav-item"><a class="nav-link" href="{% url 'core:settings' %}">Параметры</a></li>
-                            <li class="nav-item"><a class="nav-link" href="{% url 'core:report' %}">Отчёт</a></li>
                         {% endif %}
                         {% if is_deputy_dean or user.is_staff %}
                             <li class="nav-item"><a class="nav-link" href="{% url 'core:data_import' %}">Импорт данных</a></li>
@@ -47,17 +45,22 @@
                         {% if is_head %}
                             <li class="nav-item"><a class="nav-link" href="{% url 'core:distribution' %}">Распределение</a></li>
                             <li class="nav-item"><a class="nav-link" href="{% url 'core:teachers' %}">Преподаватели</a></li>
-                            <li class="nav-item"><a class="nav-link" href="{% url 'core:settings' %}">Параметры</a></li>
-                            <li class="nav-item"><a class="nav-link" href="{% url 'core:report' %}">Отчёт</a></li>
                         {% endif %}
 
                         {% if is_teacher %}
                             <li class="nav-item"><a class="nav-link" href="{% url 'core:workload' %}">Моя нагрузка</a></li>
                             <li class="nav-item"><a class="nav-link" href="{% url 'core:journal' %}">Журнал</a></li>
+                        {% endif %}
+
+                        {% if is_deputy_dean or is_head %}
+                            <li class="nav-item"><a class="nav-link" href="{% url 'core:settings' %}">Параметры</a></li>
+                        {% endif %}
+
+                        {% if is_deputy_dean or is_head or is_teacher %}
                             <li class="nav-item"><a class="nav-link" href="{% url 'core:report' %}">Отчёт</a></li>
                         {% endif %}
 
-                        {% if user.is_staff %}
+                        {% if user.is_staff and not is_deputy_dean %}
                             <li class="nav-item"><a class="nav-link" href="/admin/">Админ</a></li>
                         {% endif %}
                     {% endif %}

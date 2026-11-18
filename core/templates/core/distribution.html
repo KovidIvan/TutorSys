@@ -41,7 +41,7 @@
                                             <td><small>{{ item.discipline.name }}</small></td>
                                             <td><span class="badge bg-info">{{ item.get_kind_display }}</span></td>
                                             <td><small>{% if item.group %}{{ item.group.name }}{% if item.subgroup_no %}-{{ item.subgroup_no }}{% endif %}{% else %}Поток{% endif %}</small></td>
-                                            <td><strong>{{ item.hours }}</strong></td>
+                                            <td><strong>{{ item.hours|floatformat:"-2" }}</strong></td>
                                             <td>
                                                 <form method="post" style="display: inline;">
                                                     {% csrf_token %}
