@@ -1,45 +1,86 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
   <defs>
+    <!-- Глубокий тёмно-синий базовый фон в стиле Windows 11 Dark -->
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0b1633"/>
-      <stop offset="0.55" stop-color="#1c2a5e"/>
-      <stop offset="1" stop-color="#2b1d4f"/>
+      <stop offset="0%" stop-color="#030712"/>
+      <stop offset="50%" stop-color="#071126"/>
+      <stop offset="100%" stop-color="#050b1a"/>
     </linearGradient>
-    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3b6fe0"/>
-      <stop offset="1" stop-color="#7a4fd6"/>
+
+    <!-- Мягкое центральное свечение -->
+    <radialGradient id="ambient" cx="52%" cy="48%" r="60%">
+      <stop offset="0%" stop-color="#173b7a" stop-opacity="0.55"/>
+      <stop offset="55%" stop-color="#0c214a" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#030712" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Гладкие геометрические волны-лепестки (монохромный кобальт и сапфир) -->
+    <linearGradient id="fold1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2563eb" stop-opacity="0.42"/>
+      <stop offset="55%" stop-color="#153878" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#081530" stop-opacity="0.05"/>
     </linearGradient>
-    <linearGradient id="g2" x1="1" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#d9b15f"/>
-      <stop offset="1" stop-color="#e58a6b"/>
+
+    <linearGradient id="fold2" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.35"/>
+      <stop offset="50%" stop-color="#1a448e" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#071229" stop-opacity="0.04"/>
     </linearGradient>
-    <linearGradient id="g3" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0" stop-color="#22b6c9"/>
-      <stop offset="1" stop-color="#3b6fe0"/>
+
+    <linearGradient id="fold3" x1="0.2" y1="1" x2="0.8" y2="0">
+      <stop offset="0%" stop-color="#0a1c3e" stop-opacity="0.9"/>
+      <stop offset="65%" stop-color="#1c4b9c" stop-opacity="0.38"/>
+      <stop offset="100%" stop-color="#60a5fa" stop-opacity="0.22"/>
     </linearGradient>
-    <linearGradient id="g4" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#b86fd1"/>
-      <stop offset="1" stop-color="#e9a0b8"/>
+
+    <linearGradient id="fold4" x1="0" y1="0.5" x2="1" y2="0.5">
+      <stop offset="0%" stop-color="#091938" stop-opacity="0.1"/>
+      <stop offset="50%" stop-color="#1d4ed8" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#061024" stop-opacity="0.8"/>
     </linearGradient>
-    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="28"/>
+
+    <linearGradient id="edgeLight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#93c5fd" stop-opacity="0.32"/>
+      <stop offset="50%" stop-color="#3b82f6" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#1e3a8a" stop-opacity="0"/>
+    </linearGradient>
+
+    <filter id="blurSoft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="24"/>
     </filter>
-    <filter id="soft2" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="8"/>
+    <filter id="blurSharp" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="4"/>
     </filter>
   </defs>
+
+  <!-- База -->
   <rect width="1920" height="1080" fill="url(#bg)"/>
-  <g filter="url(#soft)">
-    <circle cx="380" cy="260" r="330" fill="url(#g1)" opacity="0.85"/>
-    <ellipse cx="1560" cy="220" rx="380" ry="260" fill="url(#g4)" opacity="0.55"/>
-    <circle cx="1450" cy="860" r="360" fill="url(#g2)" opacity="0.65"/>
-    <ellipse cx="520" cy="900" rx="420" ry="230" fill="url(#g3)" opacity="0.7"/>
-    <circle cx="980" cy="520" r="210" fill="url(#g1)" opacity="0.5"/>
+  <rect width="1920" height="1080" fill="url(#ambient)"/>
+
+  <!-- Фоновый мягкий объём -->
+  <g filter="url(#blurSoft)">
+    <path d="M-120,880 C320,620 680,1040 1180,760 C1540,560 1760,720 2060,540 L2060,1180 L-120,1180 Z" fill="url(#fold4)"/>
+    <path d="M-100,240 C340,40 820,440 1360,180 C1640,40 1840,140 2040,90 L2040,-120 L-100,-120 Z" fill="url(#fold1)"/>
   </g>
-  <g filter="url(#soft2)" fill="none" stroke-linecap="round">
-    <path d="M-60 700 C 400 520, 700 980, 1200 760 S 1800 520, 2000 640" stroke="url(#g2)" stroke-width="2" opacity="0.55"/>
-    <path d="M-60 760 C 420 580, 720 1040, 1220 820 S 1800 580, 2000 700" stroke="url(#g3)" stroke-width="2" opacity="0.4"/>
-    <circle cx="960" cy="540" r="440" stroke="#ffffff" stroke-width="1.5" opacity="0.14"/>
-    <circle cx="960" cy="540" r="560" stroke="#ffffff" stroke-width="1" opacity="0.09"/>
+
+  <!-- Чёткие многослойные геометрические складки в стиле Windows 11 Bloom -->
+  <g filter="url(#blurSharp)">
+    <!-- Левая верхняя дуга -->
+    <path d="M -80,620 C 260,240 760,160 1180,460 C 1480,670 1720,630 2020,410 L 2020,1120 L -80,1120 Z"
+          fill="url(#fold1)" stroke="url(#edgeLight)" stroke-width="1.5"/>
+
+    <!-- Центральная диагональная волна -->
+    <path d="M -60,820 C 380,460 880,380 1340,660 C 1620,830 1810,770 2040,600 L 2040,1140 L -60,1140 Z"
+          fill="url(#fold2)" stroke="url(#edgeLight)" stroke-width="1.2"/>
+
+    <!-- Правая сапфировая грань -->
+    <path d="M 420,-60 C 780,260 1120,300 1560,80 C 1760,-20 1900,40 2040,160 L 2040,860 C 1680,680 1320,760 940,520 C 620,320 480,120 420,-60 Z"
+          fill="url(#fold3)" stroke="url(#edgeLight)" stroke-width="1.2"/>
+  </g>
+
+  <!-- Тонкие геометрические световые грани -->
+  <g fill="none" stroke="url(#edgeLight)">
+    <path d="M -80,620 C 260,240 760,160 1180,460 C 1480,670 1720,630 2020,410" stroke-width="1.5" opacity="0.7"/>
+    <path d="M -60,820 C 380,460 880,380 1340,660 C 1620,830 1810,770 2040,600" stroke-width="1.2" opacity="0.55"/>
   </g>
 </svg>

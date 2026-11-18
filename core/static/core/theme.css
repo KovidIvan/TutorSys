@@ -1,21 +1,21 @@
-/* S.C.A.L.E — тема «классицизм + стекло». Переопределяет Bootstrap. */
+/* S.C.A.L.E — строгая монохромная синяя тема «классицизм + стекло» (Windows 11 Dark Blue). */
 :root {
-    --navy-950: #0b1633;
-    --navy-800: #1c2a5e;
-    --navy-600: #2f4590;
-    --gold: #b8924a;
-    --gold-soft: #d9b15f;
-    --ivory: #f6f2ea;
-    --ink: #1b2340;
-    --muted: #6b7390;
-    --glass-bg: rgba(255, 255, 255, 0.58);
-    --glass-bg-strong: rgba(255, 255, 255, 0.78);
+    --navy-950: #050b1a;
+    --navy-800: #0f2347;
+    --navy-600: #1d4ed8;
+    --accent: #3b82f6;
+    --accent-soft: #93c5fd;
+    --ivory: #f4f7fb;
+    --ink: #0f172a;
+    --muted: #5b6b88;
+    --glass-bg: rgba(248, 250, 255, 0.72);
+    --glass-bg-strong: rgba(248, 250, 255, 0.86);
     --glass-border: rgba(255, 255, 255, 0.65);
-    --glass-shadow: 0 10px 40px rgba(11, 22, 51, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    --glass-shadow: 0 12px 40px rgba(3, 7, 18, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.75);
     --serif: 'Cormorant Garamond', 'Palatino Linotype', 'Book Antiqua', Georgia, 'Times New Roman', serif;
     --sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-    --bs-primary: #2f4590;
-    --bs-primary-rgb: 47, 69, 144;
+    --bs-primary: #1d4ed8;
+    --bs-primary-rgb: 29, 78, 216;
     --bs-body-font-family: var(--sans);
     --bs-body-color: var(--ink);
 }
@@ -40,19 +40,19 @@ h1, h2, h3, h4, h5, .h1, .h2, .h3, .h4, .h5 {
     letter-spacing: 0.01em;
 }
 
-/* ---------- Верхняя навигация (стекло) ---------- */
+/* ---------- Верхняя навигация (тёмное стекло) ---------- */
 .scale-nav {
     position: sticky;
     top: 12px;
     z-index: 1030;
     margin: 12px 16px 0;
     padding: 8px 18px;
-    border-radius: 18px;
-    background: rgba(11, 22, 51, 0.45);
-    -webkit-backdrop-filter: blur(22px) saturate(160%);
-    backdrop-filter: blur(22px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+    border-radius: 16px;
+    background: rgba(7, 17, 38, 0.62);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    backdrop-filter: blur(24px) saturate(160%);
+    border: 1px solid rgba(147, 197, 253, 0.18);
+    box-shadow: 0 10px 32px rgba(2, 6, 17, 0.45);
 }
 .scale-brand {
     font-family: var(--serif);
@@ -70,11 +70,11 @@ h1, h2, h3, h4, h5, .h1, .h2, .h3, .h4, .h5 {
     font-size: 0.55rem;
     letter-spacing: 0.22em;
     font-weight: 500;
-    color: var(--gold-soft);
+    color: var(--accent-soft);
     text-transform: uppercase;
 }
 .scale-nav .nav-link {
-    color: rgba(255, 255, 255, 0.78);
+    color: rgba(226, 236, 255, 0.78);
     font-size: 0.9rem;
     padding: 0.45rem 0.8rem;
     border-radius: 10px;
@@ -83,96 +83,96 @@ h1, h2, h3, h4, h5, .h1, .h2, .h3, .h4, .h5 {
 .scale-nav .nav-link:hover,
 .scale-nav .nav-link.active {
     color: #fff;
-    background: rgba(255, 255, 255, 0.14);
+    background: rgba(59, 130, 246, 0.22);
 }
 .scale-user {
-    color: rgba(255, 255, 255, 0.85);
+    color: rgba(241, 245, 255, 0.88);
     font-size: 0.85rem;
 }
 .scale-role {
     font-size: 0.65rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--navy-950);
-    background: linear-gradient(135deg, var(--gold-soft), #f0d9a0);
+    color: #eff6ff;
+    background: rgba(37, 99, 235, 0.45);
+    border: 1px solid rgba(147, 197, 253, 0.35);
     padding: 2px 9px;
     border-radius: 999px;
     font-weight: 600;
     margin-left: 6px;
 }
 .btn-scale-out {
-    color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+    border: 1px solid rgba(147, 197, 253, 0.3);
+    background: rgba(255, 255, 255, 0.06);
     border-radius: 10px;
     font-size: 0.85rem;
 }
-.btn-scale-out:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
+.btn-scale-out:hover { background: rgba(59, 130, 246, 0.25); color: #fff; border-color: rgba(147, 197, 253, 0.5); }
 
 /* ---------- Стеклянные карточки ---------- */
 .card {
     background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(24px) saturate(170%);
-    backdrop-filter: blur(24px) saturate(170%);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    backdrop-filter: blur(24px) saturate(160%);
     border: 1px solid var(--glass-border);
-    border-radius: 20px;
+    border-radius: 18px;
     box-shadow: var(--glass-shadow);
     overflow: hidden;
 }
 .card-header {
-    background: linear-gradient(135deg, rgba(28, 42, 94, 0.88), rgba(47, 69, 144, 0.78));
+    background: linear-gradient(135deg, rgba(15, 35, 71, 0.92), rgba(29, 78, 216, 0.82));
     color: #fff;
     font-family: var(--serif);
     font-weight: 600;
     letter-spacing: 0.02em;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.22);
 }
 .card-header.bg-white,
 .card-header.bg-light {
-    background: rgba(255, 255, 255, 0.45) !important;
+    background: rgba(255, 255, 255, 0.52) !important;
     color: var(--ink);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+    border-bottom: 1px solid rgba(15, 35, 71, 0.08);
 }
 .card-header h4, .card-header h5, .card-header h6 { font-weight: 600; }
-.card-footer { background: rgba(255, 255, 255, 0.4); border-top: 1px solid rgba(255, 255, 255, 0.6); }
+.card-footer { background: rgba(255, 255, 255, 0.45); border-top: 1px solid rgba(15, 35, 71, 0.08); }
 
-/* Статистические карточки деканата: классические акценты вместо цветных рамок */
 .card.border-start { border-left-width: 3px !important; }
 
 /* ---------- Таблицы ---------- */
 .table { --bs-table-bg: transparent; color: var(--ink); }
-.table > :not(caption) > * > * { background-color: transparent; border-bottom-color: rgba(27, 35, 64, 0.08); }
+.table > :not(caption) > * > * { background-color: transparent; border-bottom-color: rgba(15, 35, 71, 0.08); }
 .table-light, .table > thead.table-light > tr > th, thead.table-light th {
-    --bs-table-bg: rgba(28, 42, 94, 0.07);
-    background: rgba(28, 42, 94, 0.07) !important;
+    --bs-table-bg: rgba(15, 35, 71, 0.06);
+    background: rgba(15, 35, 71, 0.06) !important;
     font-family: var(--serif);
     font-size: 0.95rem;
     letter-spacing: 0.04em;
     color: var(--navy-800);
 }
-.table-hover > tbody > tr:hover > * { background-color: rgba(255, 255, 255, 0.55); }
-.table-active > *, tr.table-active > * { background-color: rgba(184, 146, 74, 0.18) !important; }
+.table-hover > tbody > tr:hover > * { background-color: rgba(255, 255, 255, 0.6); }
+.table-active > *, tr.table-active > * { background-color: rgba(37, 99, 235, 0.12) !important; }
 .table-primary, .table-primary > th, .table-primary > td {
-    --bs-table-bg: rgba(47, 69, 144, 0.14);
-    background: rgba(47, 69, 144, 0.14) !important;
+    --bs-table-bg: rgba(29, 78, 216, 0.12);
+    background: rgba(29, 78, 216, 0.12) !important;
     color: var(--navy-800);
     font-family: var(--serif);
 }
 .table-secondary, .table-secondary > th, .table-secondary > td {
-    background: rgba(184, 146, 74, 0.16) !important;
+    background: rgba(15, 35, 71, 0.09) !important;
 }
 
 /* ---------- Формы ---------- */
 .form-control, .form-select {
-    background-color: rgba(255, 255, 255, 0.65);
-    border: 1px solid rgba(27, 35, 64, 0.15);
+    background-color: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(15, 35, 71, 0.16);
     border-radius: 12px;
     color: var(--ink);
 }
 .form-control:focus, .form-select:focus {
-    background-color: rgba(255, 255, 255, 0.9);
-    border-color: var(--navy-600);
-    box-shadow: 0 0 0 4px rgba(47, 69, 144, 0.15);
+    background-color: rgba(255, 255, 255, 0.95);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.18);
 }
 .form-label { font-size: 0.82rem; font-weight: 600; color: var(--navy-800); letter-spacing: 0.02em; }
 .form-text, .text-muted { color: var(--muted) !important; }
@@ -181,54 +181,54 @@ h1, h2, h3, h4, h5, .h1, .h2, .h3, .h4, .h5 {
 .btn { border-radius: 12px; font-weight: 500; transition: transform 0.15s, box-shadow 0.2s, background 0.2s; }
 .btn:active { transform: translateY(1px); }
 .btn-primary {
-    background: linear-gradient(135deg, var(--navy-600), var(--navy-800));
+    background: linear-gradient(135deg, #2563eb, #1e40af);
     border: 0;
-    box-shadow: 0 4px 14px rgba(28, 42, 94, 0.35);
+    box-shadow: 0 4px 14px rgba(29, 78, 216, 0.35);
 }
 .btn-primary:hover, .btn-primary:focus {
-    background: linear-gradient(135deg, #3b55ad, var(--navy-600));
-    box-shadow: 0 6px 20px rgba(28, 42, 94, 0.45);
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    box-shadow: 0 6px 20px rgba(29, 78, 216, 0.48);
 }
 .btn-warning {
-    background: linear-gradient(135deg, var(--gold-soft), var(--gold));
-    border: 0;
-    color: var(--navy-950);
+    background: linear-gradient(135deg, #1e40af, #0f2347);
+    border: 1px solid rgba(147, 197, 253, 0.35);
+    color: #fff;
 }
-.btn-warning:hover { background: linear-gradient(135deg, #e5c077, #c49d56); color: var(--navy-950); }
-.btn-outline-primary { color: var(--navy-600); border-color: rgba(47, 69, 144, 0.5); background: rgba(255,255,255,0.35); }
+.btn-warning:hover { background: linear-gradient(135deg, #2563eb, #1e3a8a); color: #fff; }
+.btn-outline-primary { color: var(--navy-600); border-color: rgba(29, 78, 216, 0.45); background: rgba(255,255,255,0.45); }
 .btn-outline-primary:hover { background: var(--navy-600); border-color: var(--navy-600); }
-.btn-outline-secondary { background: rgba(255,255,255,0.35); }
-.btn-outline-light { color: #fff; border-color: rgba(255,255,255,0.55); }
-.btn-outline-light:hover { background: rgba(255,255,255,0.25); color: #fff; }
-.btn-outline-danger, .btn-outline-success, .btn-outline-info { background: rgba(255,255,255,0.35); }
+.btn-outline-secondary { background: rgba(255,255,255,0.45); }
+.btn-outline-light { color: #fff; border-color: rgba(255,255,255,0.5); }
+.btn-outline-light:hover { background: rgba(255,255,255,0.2); color: #fff; }
+.btn-outline-danger, .btn-outline-success, .btn-outline-info { background: rgba(255,255,255,0.45); }
 
 /* ---------- Бейджи ---------- */
 .badge { font-weight: 500; letter-spacing: 0.03em; border-radius: 999px; padding: 0.4em 0.75em; }
-.badge.bg-info { background: rgba(47, 69, 144, 0.14) !important; color: var(--navy-800) !important; border: 1px solid rgba(47, 69, 144, 0.25); }
+.badge.bg-info { background: rgba(29, 78, 216, 0.12) !important; color: var(--navy-800) !important; border: 1px solid rgba(29, 78, 216, 0.24); }
 .badge.bg-primary { background: var(--navy-600) !important; }
-.badge.bg-secondary { background: rgba(27, 35, 64, 0.12) !important; color: var(--ink) !important; }
-.badge.bg-success { background: rgba(46, 125, 94, 0.9) !important; }
-.badge.bg-danger { background: rgba(160, 52, 62, 0.92) !important; }
-.badge.bg-warning { background: rgba(217, 177, 95, 0.95) !important; color: var(--navy-950) !important; }
+.badge.bg-secondary { background: rgba(15, 35, 71, 0.12) !important; color: var(--ink) !important; }
+.badge.bg-success { background: rgba(21, 128, 90, 0.9) !important; }
+.badge.bg-danger { background: rgba(165, 42, 56, 0.92) !important; }
+.badge.bg-warning { background: rgba(30, 64, 175, 0.16) !important; color: var(--navy-800) !important; border: 1px solid rgba(30, 64, 175, 0.3); }
 
 .breadcrumb-item a { color: var(--navy-600); text-decoration: none; }
 .alert { border-radius: 14px; border: 1px solid rgba(255,255,255,0.6); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
-.list-group-item { background: transparent; border-color: rgba(27, 35, 64, 0.08); }
-.list-group-item-action:hover { background: rgba(255, 255, 255, 0.5); }
+.list-group-item { background: transparent; border-color: rgba(15, 35, 71, 0.08); }
+.list-group-item-action:hover { background: rgba(255, 255, 255, 0.55); }
 .modal-content { background: var(--glass-bg-strong); -webkit-backdrop-filter: blur(28px); backdrop-filter: blur(28px); border-radius: 20px; border: 1px solid var(--glass-border); }
 
 .container-main { margin-top: 28px; margin-bottom: 40px; }
 
-/* Заголовки страниц прямо на фоне — светлые */
+/* Заголовки страниц на тёмном фоне — светлые */
 .container-main > .d-flex > div > h1,
 .container-main > .d-flex > div > h2,
 .container-main > .d-flex > div > .h3,
-.container-main > .container-fluid > .d-flex h1 { color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,0.25); }
+.container-main > .container-fluid > .d-flex h1 { color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,0.35); }
 .container-main > .d-flex .text-muted,
 .container-main .breadcrumb-item.active,
-.container-main .breadcrumb-item + .breadcrumb-item::before { color: rgba(255,255,255,0.75) !important; }
-.container-main > .d-flex .breadcrumb-item a { color: var(--gold-soft); }
-.container-main > .container-fluid > .d-flex .text-muted { color: rgba(255,255,255,0.75) !important; }
+.container-main .breadcrumb-item + .breadcrumb-item::before { color: rgba(219, 234, 254, 0.72) !important; }
+.container-main > .d-flex .breadcrumb-item a { color: var(--accent-soft); }
+.container-main > .container-fluid > .d-flex .text-muted { color: rgba(219, 234, 254, 0.72) !important; }
 .container-main > .container-fluid > .d-flex label { color: #fff; }
 
 .scale-footer {
@@ -236,21 +236,21 @@ h1, h2, h3, h4, h5, .h1, .h2, .h3, .h4, .h5 {
     padding: 18px 0 28px;
     font-size: 0.78rem;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.55);
+    color: rgba(191, 219, 254, 0.55);
 }
-.scale-footer b { font-family: var(--serif); letter-spacing: 0.2em; color: rgba(255,255,255,0.8); }
+.scale-footer b { font-family: var(--serif); letter-spacing: 0.2em; color: rgba(255,255,255,0.85); }
 
 /* ---------- Страница входа ---------- */
 .login-body { display: flex; align-items: center; justify-content: center; padding: 24px; }
 .login-wrap { width: 100%; max-width: 440px; }
 .login-card {
-    padding: 2.4rem 2.2rem 2rem;
-    border-radius: 28px;
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.12));
-    -webkit-backdrop-filter: blur(34px) saturate(180%);
-    backdrop-filter: blur(34px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    box-shadow: 0 24px 70px rgba(5, 10, 30, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 0 rgba(255,255,255,0.1);
+    padding: 2.5rem 2.25rem 2.1rem;
+    border-radius: 26px;
+    background: linear-gradient(155deg, rgba(25, 50, 95, 0.42), rgba(8, 18, 40, 0.58));
+    -webkit-backdrop-filter: blur(36px) saturate(160%);
+    backdrop-filter: blur(36px) saturate(160%);
+    border: 1px solid rgba(147, 197, 253, 0.28);
+    box-shadow: 0 28px 75px rgba(2, 6, 18, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.28);
     color: #fff;
 }
 .login-card .logo {
@@ -261,7 +261,7 @@ h1, h2, h3, h4, h5, .h1, .h2, .h3, .h4, .h5 {
     text-align: center;
     margin-right: -0.3em;
     line-height: 1;
-    background: linear-gradient(135deg, #fff 20%, var(--gold-soft) 100%);
+    background: linear-gradient(135deg, #ffffff 30%, #93c5fd 100%);
     -webkit-background-clip: text; background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -271,48 +271,48 @@ h1, h2, h3, h4, h5, .h1, .h2, .h3, .h4, .h5 {
     font-size: 0.68rem;
     letter-spacing: 0.24em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.75);
+    color: rgba(219, 234, 254, 0.72);
 }
 .login-card .rule {
     height: 1px; margin: 0 auto 1.8rem; width: 64px;
-    background: linear-gradient(90deg, transparent, var(--gold-soft), transparent);
+    background: linear-gradient(90deg, transparent, rgba(147, 197, 253, 0.7), transparent);
 }
-.login-card .form-label { color: rgba(255, 255, 255, 0.85); }
+.login-card .form-label { color: rgba(226, 236, 255, 0.85); }
 .login-card .form-control {
-    background: rgba(255, 255, 255, 0.16);
-    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(15, 30, 62, 0.55);
+    border: 1px solid rgba(147, 197, 253, 0.28);
     color: #fff;
     padding: 0.7rem 1rem;
 }
-.login-card .form-control::placeholder { color: rgba(255,255,255,0.5); }
+.login-card .form-control::placeholder { color: rgba(191, 219, 254, 0.45); }
 .login-card .form-control:focus {
-    background: rgba(255, 255, 255, 0.24);
-    border-color: var(--gold-soft);
-    box-shadow: 0 0 0 4px rgba(217, 177, 95, 0.22);
+    background: rgba(20, 42, 85, 0.75);
+    border-color: var(--accent-soft);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.25);
     color: #fff;
 }
 .login-card .btn-login {
     width: 100%;
     padding: 0.75rem;
-    border: 0;
+    border: 1px solid rgba(147, 197, 253, 0.35);
     border-radius: 14px;
-    color: var(--navy-950);
+    color: #fff;
     font-weight: 600;
     letter-spacing: 0.06em;
-    background: linear-gradient(135deg, #f0d9a0, var(--gold-soft) 55%, var(--gold));
-    box-shadow: 0 8px 24px rgba(184, 146, 74, 0.4);
+    background: linear-gradient(135deg, #2563eb, #1d4ed8 60%, #1e3a8a);
+    box-shadow: 0 8px 24px rgba(29, 78, 216, 0.45);
 }
-.login-card .btn-login:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.login-card .btn-login:hover { background: linear-gradient(135deg, #3b82f6, #2563eb 60%, #1d4ed8); transform: translateY(-1px); }
 .login-card .alert {
     background: rgba(160, 52, 62, 0.35);
     border: 1px solid rgba(255, 160, 170, 0.5);
     color: #fff;
 }
-.login-foot { text-align: center; margin-top: 1.4rem; font-size: 0.7rem; letter-spacing: 0.1em; color: rgba(255,255,255,0.55); }
+.login-foot { text-align: center; margin-top: 1.4rem; font-size: 0.7rem; letter-spacing: 0.1em; color: rgba(191, 219, 254, 0.5); }
 
 /* Резервный вариант без поддержки backdrop-filter */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .card, .modal-content { background: rgba(255, 255, 255, 0.92); }
-    .login-card { background: rgba(28, 42, 94, 0.85); }
-    .scale-nav { background: rgba(11, 22, 51, 0.92); }
+    .card, .modal-content { background: rgba(248, 250, 255, 0.94); }
+    .login-card { background: rgba(15, 35, 71, 0.92); }
+    .scale-nav { background: rgba(7, 17, 38, 0.94); }
 }
