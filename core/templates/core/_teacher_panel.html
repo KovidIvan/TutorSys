@@ -14,14 +14,15 @@
                                 {% if status == 'ok' %}
                                     <span class="badge bg-success">✓ В норме</span>
                                 {% elif status == 'warning' %}
-                                    <span class="badge bg-warning">Предупреждение</span>
+                                    <span class="badge bg-warning" style="background: linear-gradient(135deg, #d97706, #b45309) !important; color: #fff !important; border: 0;">Предупреждение</span>
                                 {% else %}
                                     <span class="badge bg-danger">✗ Критично</span>
                                 {% endif %}
                             </div>
                         </div>
                         <div class="text-end">
-                            <div class="display-6 fw-bold status-hours-{{ status }}">
+                            <div class="display-6 fw-bold status-hours-{{ status }}"
+                                 style="color: {% if status == 'ok' %}#15805a{% elif status == 'warning' %}#c25e00{% else %}#b91c1c{% endif %};">
                                 {{ total_hours|floatformat:"-2" }}
                             </div>
                             <small class="text-muted">{{ teacher.effective_min_hours }}–{{ teacher.effective_max_hours }}ч</small>
@@ -29,9 +30,10 @@
                     </div>
 
                     {% if warnings %}
-                        <div class="teacher-warning-box mt-2 mb-0">
+                        <div class="teacher-warning-box mt-2 mb-0"
+                             style="background: rgba(217, 119, 6, 0.14); border: 1px solid rgba(180, 83, 9, 0.3); border-left: 4px solid #d97706; border-radius: 10px; padding: 8px 10px; color: #9a3412;">
                             {% for warning in warnings %}
-                                <small class="d-block">{{ warning }}</small>
+                                <small class="d-block fw-medium" style="color: #9a3412;">{{ warning }}</small>
                             {% endfor %}
                         </div>
                     {% endif %}
