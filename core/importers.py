@@ -275,7 +275,15 @@ def _cohort_candidates(rows):
     return result
 
 
-def _make_group_name(abbreviation, academic_year, course, study_form, number):
+def _make_group_name(abbreviation, admission_year, study_form, number):
+    form_code = STUDY_FORM_CODES[study_form]
+    year_code = f'{admission_year % 100:02d}'
+    safe_abbreviation = ''.join(char for char in abbreviation if char.isalnum()) or 'group'
+    available_length = 50 - len(year_code) - len(str(number)) - len(form_code)
+    return f'{year_code}{safe_abbreviation[:available_length]}{number}{form_code}'
+
+
+def _legacy_group_name(abbreviation, academic_year, course, study_form, number):
     suffix = hashlib.sha256(abbreviation.casefold().encode('utf-8')).hexdigest()[:6]
     safe_abbreviation = ''.join(char for char in abbreviation if char.isalnum())[:18] or 'group'
     form_code = STUDY_FORM_CODES[study_form]
@@ -335,7 +343,7 @@ def import_workload_xlsx(
                 )
                 for number in range(1, group_count + 1):
                     group_name = _make_group_name(
-                        abbreviation, academic_year, row.course, row.study_form, number
+                        abbreviation, admission_year, row.study_form, number
                     )
                     defaults = {
                         'specialty': specialty,
@@ -347,7 +355,18 @@ def import_workload_xlsx(
                             if base_subgroups is not None else None
                         ),
                     }
-                    group, _ = Group.objects.update_or_create(name=group_name, defaults=defaults)
+                    group = Group.objects.filter(name=group_name).first()
+                    if group is None:
+                        group = Group.objects.filter(name=_legacy_group_name(
+                            abbreviation, academic_year, row.course, row.study_form, number
+                        )).first()
+                        if group is not None:
+                            group.name = group_name
+                    if group is None:
+                        group = Group(name=group_name)
+                    for field, value in defaults.items():
+                        setattr(group, field, value)
+                    group.save()
                     group_cache[(specialty_key, row.course, row.study_form, number)] = group
                     imported_groups.add(group.pk)
 

@@ -1,3 +1,4 @@
+from hashlib import sha256
 from io import BytesIO
 
 from django.contrib.auth.models import Group as AuthGroup, User
@@ -68,6 +69,8 @@ class WorkloadImportViewTestCase(TestCase):
         self.assertEqual(Specialty.objects.count(), 1)
         self.assertEqual(Curriculum.objects.count(), 1)
         self.assertEqual(Group.objects.count(), 2)
+        self.assertEqual(set(Group.objects.values_list('name', flat=True)), {'26TEST1д', '26TEST2д'})
+        imported_group_ids = set(Group.objects.values_list('pk', flat=True))
         self.assertEqual(Discipline.objects.count(), 2)
         self.assertEqual(LoadItem.objects.filter(discipline__department=self.department).count(), 14)
         self.assertTrue(Discipline.objects.get(name='Алгоритмы').groups.filter(students_count=20).exists())
@@ -77,9 +80,16 @@ class WorkloadImportViewTestCase(TestCase):
             'none',
         )
 
+        legacy_suffix = sha256(b'test').hexdigest()[:6]
+        for number, group in enumerate(Group.objects.order_by('name'), start=1):
+            group.name = f'TEST-{legacy_suffix}-2026-1-д-{number}'
+            group.save(update_fields=['name'])
+
         second_response = self.import_file(self.make_workbook())
 
         self.assertEqual(second_response.status_code, 302)
+        self.assertEqual(set(Group.objects.values_list('pk', flat=True)), imported_group_ids)
+        self.assertEqual(set(Group.objects.values_list('name', flat=True)), {'26TEST1д', '26TEST2д'})
         self.assertEqual(Specialty.objects.count(), 1)
         self.assertEqual(Curriculum.objects.count(), 1)
         self.assertEqual(Group.objects.count(), 2)
