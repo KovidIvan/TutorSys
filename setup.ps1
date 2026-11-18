@@ -33,11 +33,7 @@ Write-Host "==> [4/5] Применение миграций..." -ForegroundColor
 & $Python manage.py migrate --noinput
 
 if (-not $NoSeed) {
-    $HasUsers = & $Python manage.py shell -c "from django.contrib.auth.models import User; print(User.objects.exists())"
-    if ($HasUsers.Trim() -eq "False") {
-        Write-Host "Загрузка демонстрационных данных..." -ForegroundColor Cyan
-        & $Python manage.py shell -c "from core.seed import run; run()"
-    }
+    & $Python manage.py shell -c "from django.contrib.auth.models import User; from core.seed import run; run() if not User.objects.exists() else None"
 }
 
 Write-Host "==> [5/5] Запуск S.C.A.L.E на http://127.0.0.1:$Port/accounts/login/" -ForegroundColor Green

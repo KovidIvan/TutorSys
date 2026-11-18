@@ -78,13 +78,15 @@ echo "==> [4/5] Применение миграций и подготовка б
 python manage.py migrate --noinput
 
 if [ "$LOAD_SEED" = true ]; then
-    HAS_USERS="$(python manage.py shell -c 'from django.contrib.auth.models import User; print(User.objects.exists())')"
-    if [ "$HAS_USERS" = "False" ]; then
-        echo "Загрузка демонстрационных данных..."
-        python manage.py shell -c "from core.seed import run; run()"
-    else
-        echo "База уже содержит данные (пропуск seed). Для перезаписи выполните: python manage.py shell -c 'from core.seed import run; run()'"
-    fi
+    python manage.py shell -c "
+from django.contrib.auth.models import User
+from core.seed import run
+if not User.objects.exists():
+    print('Загрузка демонстрационных данных...')
+    run()
+else:
+    print('База уже содержит пользователей (пропуск seed).')
+"
 fi
 
 if [ "$INSTALL_SYSTEMD" = true ]; then
