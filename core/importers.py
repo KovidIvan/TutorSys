@@ -18,6 +18,8 @@ from .models import (
     Department,
     Discipline,
     Group,
+    JournalEntry,
+    LoadItem,
     Specialty,
 )
 
@@ -283,11 +285,34 @@ def _make_group_name(abbreviation, admission_year, study_form, number):
     return f'{year_code}{safe_abbreviation[:available_length]}{number}{form_code}'
 
 
-def _legacy_group_name(abbreviation, academic_year, course, study_form, number):
-    suffix = hashlib.sha256(abbreviation.casefold().encode('utf-8')).hexdigest()[:6]
-    safe_abbreviation = ''.join(char for char in abbreviation if char.isalnum())[:18] or 'group'
-    form_code = STUDY_FORM_CODES[study_form]
-    return f'{safe_abbreviation}-{suffix}-{academic_year}-{course}-{form_code}-{number}'[:50]
+def _merge_legacy_group(source, target):
+    for discipline in source.discipline_set.all():
+        discipline.groups.add(target)
+
+    for source_item in LoadItem.objects.filter(group=source):
+        target_item = LoadItem.objects.filter(
+            discipline_id=source_item.discipline_id,
+            kind=source_item.kind,
+            group=target,
+            subgroup_no=source_item.subgroup_no,
+        ).first()
+        if target_item is None:
+            source_item.group = target
+            source_item.save(update_fields=['group'])
+            continue
+
+        if source_item.teacher_id and target_item.teacher_id not in (None, source_item.teacher_id):
+            raise WorkloadImportError(
+                f'Невозможно объединить группы «{source.name}» и «{target.name}»: '
+                'для одной нагрузки назначены разные преподаватели.'
+            )
+        if target_item.teacher_id is None and source_item.teacher_id:
+            target_item.teacher_id = source_item.teacher_id
+            target_item.save(update_fields=['teacher'])
+        JournalEntry.objects.filter(load_item=source_item).update(load_item=target_item)
+        source_item.delete()
+
+    source.delete()
 
 
 def import_workload_xlsx(
@@ -356,17 +381,26 @@ def import_workload_xlsx(
                         ),
                     }
                     group = Group.objects.filter(name=group_name).first()
-                    if group is None:
-                        group = Group.objects.filter(name=_legacy_group_name(
-                            abbreviation, academic_year, row.course, row.study_form, number
-                        )).first()
-                        if group is not None:
-                            group.name = group_name
+                    legacy_suffix = (
+                        f'-{academic_year}-{row.course}-'
+                        f'{STUDY_FORM_CODES[row.study_form]}-{number}'
+                    )
+                    legacy_groups = list(Group.objects.filter(
+                        specialty__abbr__iexact=abbreviation,
+                        course=row.course,
+                        study_form=row.study_form,
+                        name__endswith=legacy_suffix,
+                    ).order_by('pk'))
+                    if group is None and legacy_groups:
+                        group = legacy_groups.pop(0)
+                        group.name = group_name
                     if group is None:
                         group = Group(name=group_name)
                     for field, value in defaults.items():
                         setattr(group, field, value)
                     group.save()
+                    for legacy_group in legacy_groups:
+                        _merge_legacy_group(legacy_group, group)
                     group_cache[(specialty_key, row.course, row.study_form, number)] = group
                     imported_groups.add(group.pk)
 

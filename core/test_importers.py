@@ -1,4 +1,4 @@
-from hashlib import sha256
+from datetime import date
 from io import BytesIO
 
 from django.contrib.auth.models import Group as AuthGroup, User
@@ -6,13 +6,16 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from openpyxl import Workbook
 
+from .calculations import teacher_workload
 from .models import (
     Curriculum,
     Department,
     Discipline,
     Group,
+    JournalEntry,
     LoadItem,
     Specialty,
+    Teacher,
 )
 
 
@@ -38,12 +41,12 @@ class WorkloadImportViewTestCase(TestCase):
         worksheet.title = 'Нагрузка'
         worksheet.append(self.headers)
         worksheet.append([
-            'Алгоритмы', 'TEST', 1, 1, 1, 'д', 40, 1, 2, 4,
+            'Алгоритмы', 'ПМ', 1, 1, 1, 'д', 40, 1, 2, 4,
             30, 30, 12, 24, 8, 32, 1, 5, 2, 6, None, 2, 9, None,
             100, 'у', None, None, None,
         ])
         worksheet.append([
-            'Введение в курс', 'TEST', 1, 0, 0 if not invalid_semester else 4,
+            'Введение в курс', 'ПМ', 1, 0, 0 if not invalid_semester else 4,
             'д', 40, 1, 2, 4, 6, 6, None, None, None, None, None, None,
             None, None, None, None, None, None, 6, None, None, None, None,
         ])
@@ -69,8 +72,7 @@ class WorkloadImportViewTestCase(TestCase):
         self.assertEqual(Specialty.objects.count(), 1)
         self.assertEqual(Curriculum.objects.count(), 1)
         self.assertEqual(Group.objects.count(), 2)
-        self.assertEqual(set(Group.objects.values_list('name', flat=True)), {'26TEST1д', '26TEST2д'})
-        imported_group_ids = set(Group.objects.values_list('pk', flat=True))
+        self.assertEqual(set(Group.objects.values_list('name', flat=True)), {'26ПМ1д', '26ПМ2д'})
         self.assertEqual(Discipline.objects.count(), 2)
         self.assertEqual(LoadItem.objects.filter(discipline__department=self.department).count(), 14)
         self.assertTrue(Discipline.objects.get(name='Алгоритмы').groups.filter(students_count=20).exists())
@@ -80,17 +82,66 @@ class WorkloadImportViewTestCase(TestCase):
             'none',
         )
 
-        legacy_suffix = sha256(b'test').hexdigest()[:6]
-        for number, group in enumerate(Group.objects.order_by('name'), start=1):
-            group.name = f'TEST-{legacy_suffix}-2026-1-д-{number}'
-            group.save(update_fields=['name'])
+        legacy_groups = list(Group.objects.order_by('name'))
+        duplicate_specialty = Specialty.objects.create(
+            code='legacy-specialty', name='Старая специальность', abbr='ПМ'
+        )
+        specialty_count = Specialty.objects.count()
+        canonical_groups = []
+        for number, group in enumerate(legacy_groups, start=1):
+            group.name = f'ПМ-3ffde9-2026-1-д-{number}'
+            if number == 1:
+                group.specialty = duplicate_specialty
+                group.save(update_fields=['name', 'specialty'])
+            else:
+                group.save(update_fields=['name'])
+            if number == 1:
+                canonical_groups.append(Group.objects.create(
+                    name=f'26ПМ{number}д',
+                    specialty=group.specialty,
+                    course=group.course,
+                    study_form=group.study_form,
+                    students_count=group.students_count,
+                    subgroups_count=group.subgroups_count,
+                ))
+            else:
+                group.name = f'26ПМ{number}д'
+                group.save(update_fields=['name'])
+                canonical_groups.append(group)
+
+        teacher_user = User.objects.create_user(username='assigned_teacher', password='pass')
+        teacher = Teacher.objects.create(
+            user=teacher_user, full_name='Преподаватель', department=self.department
+        )
+        legacy_item = LoadItem.objects.filter(group=legacy_groups[0], kind='exam').first()
+        legacy_item.teacher = teacher
+        legacy_item.save(update_fields=['teacher'])
+        journal_entry = JournalEntry.objects.create(
+            teacher=teacher,
+            load_item=legacy_item,
+            date=date(2026, 1, 1),
+            hours=1,
+            topic='Сохраненная запись',
+        )
 
         second_response = self.import_file(self.make_workbook())
 
         self.assertEqual(second_response.status_code, 302)
-        self.assertEqual(set(Group.objects.values_list('pk', flat=True)), imported_group_ids)
-        self.assertEqual(set(Group.objects.values_list('name', flat=True)), {'26TEST1д', '26TEST2д'})
-        self.assertEqual(Specialty.objects.count(), 1)
+        self.assertEqual(set(Group.objects.values_list('pk', flat=True)),
+                         {group.pk for group in canonical_groups})
+        self.assertEqual(set(Group.objects.values_list('name', flat=True)), {'26ПМ1д', '26ПМ2д'})
+        self.assertEqual(
+            JournalEntry.objects.get(pk=journal_entry.pk).load_item.group_id,
+            canonical_groups[0].pk,
+        )
+        self.assertEqual(
+            LoadItem.objects.get(discipline__name='Алгоритмы', kind='exam', group=canonical_groups[0]).teacher,
+            teacher,
+        )
+        workload_groups = [row['groups'] for row in teacher_workload(teacher)['rows']]
+        self.assertIn('26ПМ1д', workload_groups)
+        self.assertTrue(all('3ffde9' not in groups for groups in workload_groups))
+        self.assertEqual(Specialty.objects.count(), specialty_count)
         self.assertEqual(Curriculum.objects.count(), 1)
         self.assertEqual(Group.objects.count(), 2)
         self.assertEqual(Discipline.objects.count(), 2)
