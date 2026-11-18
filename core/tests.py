@@ -1070,6 +1070,43 @@ class TeachersPageTestCase(TestCase):
         self.assertContains(response, 'Свой')
         self.assertNotContains(response, 'Чужой')
 
+    def test_specialization_choices_are_deduplicated_searchable_and_select_all_matching_records(self):
+        specialty = Specialty.objects.create(code='ДУБ', name='Специальность дублей', abbr='ДУБ')
+        disciplines = []
+        for admission_year in (2024, 2025):
+            curriculum = Curriculum.objects.create(
+                specialty=specialty, admission_year=admission_year, study_form='full_time'
+            )
+            disciplines.append(Discipline.objects.create(
+                curriculum=curriculum,
+                department=self.department,
+                name='Повторная дисциплина',
+                semester=1,
+            ))
+
+        self.client.login(username='t2_head', password='pass')
+        response = self.client.get(self.url, {'edit': self.own.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="specialization-search"')
+        self.assertContains(response, '#id_specialization input[name="specialization"]')
+        self.assertContains(response, "document.createElement('strong')")
+        self.assertContains(response, 'renderHighlight(choice.highlightContainer, choice.text, query)')
+        self.assertEqual(response.content.decode().count('Повторная дисциплина (ДУБ)'), 1)
+
+        response = self.client.post(self.url, self.payload(
+            teacher_id=self.own.pk,
+            password='',
+            username='ignored',
+            specialization=str(disciplines[0].pk),
+        ))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertQuerySetEqual(
+            self.own.specialization.filter(pk__in=[discipline.pk for discipline in disciplines]).order_by('pk'),
+            sorted(disciplines, key=lambda discipline: discipline.pk),
+        )
+
     def test_create_makes_user_group_and_teacher_in_own_department(self):
         self.client.login(username='t2_head', password='pass')
         response = self.client.post(self.url, self.payload())

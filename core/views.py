@@ -319,8 +319,35 @@ class TeacherForm(forms.ModelForm):
     def __init__(self, *args, department=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.department = department
-        self.fields['specialization'].queryset = Discipline.objects.filter(department=department).order_by('name')
-        self.fields['specialization'].required = False
+        specialization_field = self.fields['specialization']
+        specialization_field.queryset = Discipline.objects.filter(
+            department=department
+        ).select_related('curriculum__specialty').order_by(
+            'name', 'curriculum__specialty__abbr', 'curriculum__admission_year', 'semester', 'pk'
+        )
+        self.specialization_groups = {}
+        self.specialization_choice_keys = {}
+        choices = []
+        for discipline in specialization_field.queryset:
+            specialty_abbr = discipline.curriculum.specialty.abbr
+            key = (discipline.name.strip().casefold(), specialty_abbr.strip().casefold())
+            group = self.specialization_groups.setdefault(key, [])
+            group.append(discipline)
+            if len(group) == 1:
+                choices.append((discipline.pk, f'{discipline.name} ({specialty_abbr})'))
+                self.specialization_choice_keys[discipline.pk] = key
+        specialization_field.choices = choices
+        specialization_field.required = False
+        if self.instance.pk:
+            existing_keys = set(self.instance.specialization.filter(
+                department=department
+            ).values_list('name', 'curriculum__specialty__abbr'))
+            existing_keys = {(name.strip().casefold(), abbr.strip().casefold())
+                             for name, abbr in existing_keys}
+            specialization_field.initial = [
+                choice_value for choice_value, key in self.specialization_choice_keys.items()
+                if key in existing_keys
+            ]
         self.fields['position'].required = True
         self.fields['position'].queryset = PositionRule.objects.all()
         if self.instance.pk:
@@ -348,6 +375,18 @@ class TeacherForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+        selected = cleaned.get('specialization')
+        if selected is not None:
+            selected_keys = {
+                (discipline.name.strip().casefold(),
+                 discipline.curriculum.specialty.abbr.strip().casefold())
+                for discipline in selected
+            }
+            cleaned['specialization'] = [
+                discipline
+                for key in selected_keys
+                for discipline in self.specialization_groups[key]
+            ]
         password = cleaned.get('password')
         if not self.instance.pk and not password:
             self.add_error('password', 'Задайте пароль.')
