@@ -964,9 +964,11 @@ class DistributionViewTestCase(TestCase):
         response = self.client.get('/distribution/')
         self.assertEqual(response.status_code, 200)
 
-        # Проверяем наличие группировки по обеим специальностям
-        self.assertContains(response, '99.02.01 — Тест (Т)')
-        self.assertContains(response, '88.01.01 — Вторая Спец (ВС)')
+        # Проверяем наличие группировки по обеим специальностям без технических кодов
+        self.assertContains(response, 'Тест (Т)')
+        self.assertContains(response, 'Вторая Спец (ВС)')
+        self.assertNotContains(response, '99.02.01')
+        self.assertNotContains(response, '88.01.01')
 
         # Проверяем наличие галочки специализации для подходящей дисциплины
         self.assertContains(response, f'✓ {self.target_teacher.full_name}')

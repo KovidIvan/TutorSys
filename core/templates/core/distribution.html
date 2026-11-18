@@ -34,7 +34,7 @@
                             <tbody>
                                 {% for group in load_item_groups %}
                                     <tr class="table-primary">
-                                        <th colspan="5">{{ group.specialty.code }} — {{ group.specialty.name }} ({{ group.specialty.abbr }})</th>
+                                        <th colspan="5">{{ group.specialty.name }} ({{ group.specialty.abbr }})</th>
                                     </tr>
                                     {% for item in group.items %}
                                         <tr>
