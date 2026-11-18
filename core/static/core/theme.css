@@ -12,18 +12,22 @@
     --glass-bg-strong: rgba(248, 250, 255, 0.86);
     --glass-border: rgba(255, 255, 255, 0.65);
     --glass-shadow: 0 12px 40px rgba(3, 7, 18, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.75);
-    --serif: 'Cormorant Garamond', 'Palatino Linotype', 'Book Antiqua', Georgia, 'Times New Roman', serif;
-    --sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --sans: 'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
+    --serif: var(--sans);
     --bs-primary: #1d4ed8;
     --bs-primary-rgb: 29, 78, 216;
     --bs-body-font-family: var(--sans);
+    --bs-font-sans-serif: var(--sans);
     --bs-body-color: var(--ink);
 }
 
 html { min-height: 100%; }
 
-body {
+body, input, select, textarea, button, table, th, td {
     font-family: var(--sans);
+}
+
+body {
     color: var(--ink);
     min-height: 100vh;
     background-color: var(--navy-950);
@@ -34,10 +38,10 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
-h1, h2, h3, h4, h5, .h1, .h2, .h3, .h4, .h5 {
-    font-family: var(--serif);
+h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {
+    font-family: var(--sans);
     font-weight: 600;
-    letter-spacing: 0.01em;
+    letter-spacing: -0.01em;
 }
 
 /* ---------- Верхняя навигация (тёмное стекло) ---------- */
