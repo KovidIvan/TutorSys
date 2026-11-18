@@ -951,6 +951,30 @@ class DistributionViewTestCase(TestCase):
         self.assertContains(response, '17')
         self.assertNotIn('_messages', self.client.session)
 
+    def test_distribution_shows_lab_subgroup_numbers(self):
+        group = Group.objects.create(
+            name='26ПМ1д',
+            specialty=self.discipline.curriculum.specialty,
+            course=1,
+            students_count=20,
+            subgroups_count=2,
+        )
+        self.discipline.groups.add(group)
+        for subgroup_no in (1, 2):
+            LoadItem.objects.create(
+                discipline=self.discipline,
+                kind='lab',
+                group=group,
+                subgroup_no=subgroup_no,
+                hours=Decimal('56'),
+            )
+
+        response = self.client.get('/distribution/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '26ПМ1д, п/г 1')
+        self.assertContains(response, '26ПМ1д, п/г 2')
+
     def test_distribution_groups_by_specialty_and_marks_specialization(self):
         # Добавляем специализацию целевому преподавателю
         self.target_teacher.specialization.add(self.discipline)

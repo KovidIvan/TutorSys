@@ -40,7 +40,7 @@
                                         <tr>
                                             <td><small>{{ item.discipline.name }}</small></td>
                                             <td><span class="badge bg-info">{{ item.get_kind_display }}</span></td>
-                                            <td><small>{% if item.group %}{{ item.group.name }}{% else %}Поток{% endif %}</small></td>
+                                            <td><small>{% if item.group %}{{ item.group.name }}{% if item.subgroup_no %}, п/г {{ item.subgroup_no }}{% endif %}{% else %}Поток{% endif %}</small></td>
                                             <td><strong>{{ item.hours }}</strong></td>
                                             <td>
                                                 <form method="post" style="display: inline;">
