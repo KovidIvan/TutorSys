@@ -79,7 +79,7 @@
         <div class="card border-primary">
             <div class="card-body text-center">
                 <h6 class="card-title text-muted">Всего назначено часов</h6>
-                <div class="display-5 fw-bold text-primary">{{ total_hours }}</div>
+                <div class="display-5 fw-bold text-primary">{{ total_hours|floatformat:"-2" }}</div>
                 <div class="text-muted mt-1 small">Норма: {{ teacher.effective_min_hours }}–{{ teacher.effective_max_hours }} ч</div>
             </div>
         </div>

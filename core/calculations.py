@@ -212,10 +212,14 @@ def recalculate_department(department, settings: CalcSettings):
 
 # ============ ПРОВЕРКА НАГРУЗКИ ПРЕПОДАВАТЕЛЯ ============
 
+def _format_hours(hours: Decimal) -> str:
+    return format(hours.normalize(), 'f')
+
+
 def teacher_total(teacher: Teacher) -> Decimal:
-    """Сумма всех назначенных часов преподавателя."""
+    """Сумма назначенных часов, округлённая до точности хранения часов."""
     total = LoadItem.objects.filter(teacher=teacher).aggregate(total=Sum('hours'))['total']
-    return total or Decimal('0')
+    return (total or Decimal('0')).quantize(Decimal('0.01'))
 
 
 # Порядок видов работ для страницы нагрузки преподавателя (как в образце из задания).
@@ -389,13 +393,13 @@ def check_teacher(teacher: Teacher) -> List[str]:
     # Проверка минимума
     if total < Decimal(str(teacher.effective_min_hours)):
         warnings.append(
-            f'Меньше минимума: {total} ч из {teacher.effective_min_hours} ч'
+            f'Меньше минимума: {_format_hours(total)} ч из {teacher.effective_min_hours} ч'
         )
 
     # Проверка максимума
     if total > Decimal(str(teacher.effective_max_hours)):
         warnings.append(
-            f'Больше максимума: {total} ч из {teacher.effective_max_hours} ч'
+            f'Больше максимума: {_format_hours(total)} ч из {teacher.effective_max_hours} ч'
         )
 
     # Проверка лекций
@@ -403,11 +407,12 @@ def check_teacher(teacher: Teacher) -> List[str]:
         lecture_hours = LoadItem.objects.filter(
             teacher=teacher, kind='lec'
         ).aggregate(total=Sum('hours'))['total'] or Decimal('0')
+        lecture_hours = lecture_hours.quantize(Decimal('0.01'))
 
         min_lecture = Decimal(str(teacher.position.min_lecture_hours * teacher.rate))
         if lecture_hours < min_lecture:
             warnings.append(
-                f'Лекций меньше нормы: {lecture_hours} ч из {min_lecture} ч'
+                f'Лекций меньше нормы: {_format_hours(lecture_hours)} ч из {_format_hours(min_lecture)} ч'
             )
 
     # Проверка прав на лекции

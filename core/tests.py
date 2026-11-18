@@ -951,6 +951,22 @@ class DistributionViewTestCase(TestCase):
         self.assertContains(response, '17')
         self.assertNotIn('_messages', self.client.session)
 
+    def test_teacher_panel_formats_assigned_hours_to_cents(self):
+        for hours in (Decimal('0.10'), Decimal('0.20')):
+            LoadItem.objects.create(
+                discipline=self.discipline,
+                kind='exam',
+                hours=hours,
+                teacher=self.target_teacher,
+            )
+
+        response = self.client.get('/distribution/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '0,3')
+        self.assertContains(response, 'Меньше минимума: 0.3 ч из 840 ч')
+        self.assertNotContains(response, '0.300000000000000')
+
     def test_distribution_shows_lab_subgroup_numbers(self):
         group = Group.objects.create(
             name='26ПМ1д',
