@@ -1,0 +1,55 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Импорт учебных данных{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4 class="mb-0">Импорт учебных данных из Excel</h4>
+            </div>
+            <div class="card-body">
+                <p>Загрузите файл <code>.xlsx</code> с кафедральной нагрузкой. Система сама прочитает файл и создаст или обновит данные для работы приложения — вручную заполнять базу данных не нужно. Существующие записи не удаляются; повторная загрузка обновляет совпадающие данные.</p>
+                <div class="alert alert-info">
+                    В исходной таблице нет названия кафедры и года набора. Укажите кафедру, которой принадлежат импортируемые дисциплины, и год начала учебного года для первого курса. Если числа групп достаточно, специальности в одной строке будут разделены на группы; при одной общей группе коды сохраняются как совместная специальность.
+                </div>
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label" for="workload-file">Файл Excel (.xlsx)</label>
+                        <input class="form-control" id="workload-file" type="file" name="workload_file" accept=".xlsx" required>
+                        <div class="form-text">Максимальный размер файла — 2 МБ. Используется первый лист книги.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="department-id">Существующая кафедра (если есть)</label>
+                        <select class="form-select" id="department-id" name="department_id">
+                            <option value="">— или создайте новую ниже —</option>
+                            {% for department in departments %}
+                                <option value="{{ department.pk }}" {% if selected_department == department.pk|stringformat:'s' %}selected{% endif %}>{{ department.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="new-department-name">Название новой кафедры</label>
+                        <input class="form-control" id="new-department-name" type="text" name="new_department_name" maxlength="255" value="{{ new_department_name }}">
+                        <div class="form-text">Заполните это поле, если база данных ещё не содержит нужную кафедру. Выберите только один вариант: существующую кафедру или новую.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="academic-year">Год начала учебного года для первого курса</label>
+                        <input class="form-control" id="academic-year" type="number" name="academic_year" min="1900" max="2100" value="{{ academic_year }}" required>
+                        <div class="form-text">Например, при значении 2026 для курса 2 будет создан учебный план набора 2025 года.</div>
+                    </div>
+                    <button class="btn btn-primary" type="submit">Проверить и импортировать</button>
+                </form>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h5 class="mb-0">Поддерживаемые поля таблицы</h5></div>
+            <div class="card-body">
+                <p class="mb-0">Название дисциплины, код специальности, курс, семестр, форма обучения, число студентов и групп, подгруппы, плановые часы лекций, практик и лабораторных, число контрольных работ, УСР, экзамен и зачёт.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

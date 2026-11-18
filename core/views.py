@@ -25,6 +25,7 @@ from .calculations import (
     recalculate_department, check_teacher, teacher_total, teacher_workload,
     report_matrix, MONTH_NAMES, REPORT_TOLERANCE
 )
+from .importers import WorkloadImportError, import_workload_xlsx
 
 
 # ============ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ============
@@ -228,6 +229,78 @@ def settings_view(request):
     return render(request, 'core/settings.html', context)
 
 
+@login_required
+def data_import_view(request):
+    """Загрузить исходные данные из Excel. Доступ: заместитель декана."""
+    if not (has_role(request.user, 'deputy_dean') or request.user.is_staff):
+        return error_page(request, 'Импортировать учебные данные может зам. декана или администратор.', 403)
+
+    academic_year = str(date.today().year)
+    selected_department = ''
+    new_department_name = ''
+    if request.method == 'POST':
+        academic_year = request.POST.get('academic_year', '').strip()
+        selected_department = request.POST.get('department_id', '').strip()
+        new_department_name = request.POST.get('new_department_name', '').strip()
+        upload = request.FILES.get('workload_file')
+        error = None
+
+        try:
+            year = int(academic_year)
+            if not 1900 <= year <= 2100:
+                raise ValueError
+        except ValueError:
+            error = 'Укажите год начала учебного года от 1900 до 2100.'
+
+        try:
+            department_id = int(selected_department) if selected_department else None
+        except ValueError:
+            department_id = None
+        department = Department.objects.filter(pk=department_id).first() if department_id else None
+        if error is None and department and new_department_name:
+            error = 'Выберите существующую кафедру или укажите новую, но не оба варианта.'
+        if error is None and department is None and not new_department_name:
+            error = 'Выберите существующую кафедру или укажите название новой.'
+        if error is None and len(new_department_name) > 255:
+            error = 'Название кафедры не должно превышать 255 символов.'
+        if error is None and upload is None:
+            error = 'Выберите файл Excel для загрузки.'
+        if error is None and not upload.name.lower().endswith('.xlsx'):
+            error = 'Поддерживаются только файлы Excel с расширением .xlsx.'
+
+        if error:
+            messages.error(request, error)
+        else:
+            try:
+                result = import_workload_xlsx(
+                    upload, department, year, department_name=new_department_name or None
+                )
+            except WorkloadImportError as exc:
+                messages.error(request, str(exc))
+            else:
+                success = (
+                    f"Импорт завершён: обработано строк — {result['rows']}, "
+                    f"специальностей — {result['specialties']}, групп — {result['groups']}, "
+                    f"дисциплин — {result['disciplines']}. Нагрузка кафедры пересчитана."
+                )
+                if result['warnings']:
+                    success += (
+                        f" Строк без номера семестра: {result['warnings']}; "
+                        'они отнесены к первому семестру соответствующего курса.'
+                    )
+                messages.success(request, success)
+                return redirect('core:data_import')
+
+    context = {
+        'departments': Department.objects.order_by('name'),
+        'academic_year': academic_year,
+        'selected_department': selected_department,
+        'new_department_name': new_department_name,
+    }
+    context = add_role_context(context, request)
+    return render(request, 'core/data_import.html', context)
+
+
 # ============ ПРЕПОДАВАТЕЛИ (зав. кафедрой) ============
 
 class TeacherForm(forms.ModelForm):
@@ -414,6 +487,13 @@ def distribution_view(request):
         candidates.sort(key=lambda c: (not c['is_specialized'], c['name']))
         item.candidates = candidates
 
+    load_item_groups = []
+    for item in load_items:
+        specialty = item.discipline.curriculum.specialty
+        if not load_item_groups or load_item_groups[-1]['specialty'].pk != specialty.pk:
+            load_item_groups.append({'specialty': specialty, 'items': []})
+        load_item_groups[-1]['items'].append(item)
+
     if request.method == 'POST':
         action = request.POST.get('action')
         if action == 'recalculate':
@@ -456,6 +536,7 @@ def distribution_view(request):
     context = {
         'disciplines': disciplines,
         'load_items': load_items,
+        'load_item_groups': load_item_groups,
         'teachers': teachers,
         'teachers_data': teachers_data,
         'user_department': user_department,

@@ -107,6 +107,11 @@
                                 <a class="nav-link" href="{% url 'core:settings' %}">⚙️ Параметры</a>
                             </li>
                         {% endif %}
+                        {% if is_deputy_dean or user.is_staff %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'core:data_import' %}">📥 Импорт данных</a>
+                            </li>
+                        {% endif %}
 
                         <!-- Меню для зав. кафедрой -->
                         {% if is_head %}

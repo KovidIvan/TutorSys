@@ -8,8 +8,9 @@ from . import views
 app_name = 'core'
 
 urlpatterns = [
-    # Параметры расчёта
+    # Параметры расчёта и импорт исходных данных
     path('settings/', views.settings_view, name='settings'),
+    path('data-import/', views.data_import_view, name='data_import'),
 
     # Распределение нагрузки
     path('distribution/', views.distribution_view, name='distribution'),

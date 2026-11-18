@@ -145,6 +145,7 @@ class Discipline(models.Model):
     CONTROL_FORM_CHOICES = [
         ('exam', 'Экзамен'),
         ('credit', 'Зачёт'),
+        ('none', 'Нет контроля'),
     ]
 
     curriculum = models.ForeignKey(
