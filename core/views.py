@@ -22,8 +22,8 @@ from .models import (
     Adjustment
 )
 from .calculations import (
-    recalculate_department, check_teacher, teacher_total, report_matrix,
-    MONTH_NAMES, REPORT_TOLERANCE
+    recalculate_department, check_teacher, teacher_total, teacher_workload,
+    report_matrix, MONTH_NAMES, REPORT_TOLERANCE
 )
 
 
@@ -380,13 +380,39 @@ def distribution_view(request):
     )
     load_items = (
         LoadItem.objects.filter(discipline__department=user_department)
-        .select_related('discipline', 'group', 'teacher').order_by('discipline', 'kind')
+        .select_related(
+            'discipline__curriculum__specialty',
+            'discipline',
+            'group',
+            'teacher'
+        )
+        .order_by(
+            'discipline__curriculum__specialty__code',
+            'discipline__semester',
+            'discipline__name',
+            'kind'
+        )
         if user_department else LoadItem.objects.none()
     )
     teachers = (
         Teacher.objects.filter(department=user_department).select_related('position')
         if user_department else Teacher.objects.none()
     )
+    teacher_list = list(teachers.prefetch_related('specialization'))
+    for item in load_items:
+        disc_id = item.discipline_id
+        candidates = []
+        for t in teacher_list:
+            is_spec = disc_id in {d.id for d in t.specialization.all()}
+            prefix = '✓ ' if is_spec else ''
+            candidates.append({
+                'id': t.id,
+                'name': f"{prefix}{t.full_name}",
+                'is_specialized': is_spec,
+                'is_current': item.teacher_id == t.id,
+            })
+        candidates.sort(key=lambda c: (not c['is_specialized'], c['name']))
+        item.candidates = candidates
 
     if request.method == 'POST':
         action = request.POST.get('action')
@@ -444,40 +470,27 @@ def distribution_view(request):
 def workload_view(request):
     """
     Страница собственной нагрузки преподавателя.
+    Показывает таблицу: строки = дисциплины, столбцы = виды работ,
+    итоги за осенний семестр, весенний семестр и год в целом.
     Доступ: преподаватель.
     """
-    # Проверка прав доступа
     if not has_role(request.user, 'teacher'):
         return error_page(request, '❌ Доступ запрещён. Это страница только для преподавателей.', 403)
 
     try:
         teacher = request.user.teacher
-    except:
+    except Exception:
         teacher = None
 
     if not teacher:
         return error_page(request, 'Вы не зарегистрированы как преподаватель.', 404)
 
-    load_items = LoadItem.objects.filter(
-        teacher=teacher
-    ).select_related('discipline', 'group').order_by('discipline')
-
-    # Группировать по дисциплинам
-    load_by_discipline = {}
-    for item in load_items:
-        disc = item.discipline
-        if disc not in load_by_discipline:
-            load_by_discipline[disc] = []
-        load_by_discipline[disc].append(item)
-
-    # Подсчитать всего часов
-    total_hours = load_items.aggregate(total=Sum('hours'))['total'] or 0
+    workload = teacher_workload(teacher)
 
     context = {
         'teacher': teacher,
-        'load_items': load_items,
-        'load_by_discipline': load_by_discipline,
-        'total_hours': total_hours,
+        'workload': workload,
+        'total_hours': workload['grand_totals_total'],
     }
     context = add_role_context(context, request)
     return render(request, 'core/workload.html', context)
@@ -811,23 +824,34 @@ def export_excel_view(request, export_type):
             return error_page(request, 'Вы не зарегистрированы как преподаватель.', 404)
 
         if export_type == 'workload':
-            items = LoadItem.objects.filter(teacher=teacher).select_related(
-                'discipline', 'group'
-            ).order_by('discipline', 'kind')
-            rows = [
-                (
-                    item.discipline.name,
-                    item.get_kind_display(),
-                    item.group.name if item.group else 'Поток',
-                    item.subgroup_no or '',
-                    item.hours
+            wl = teacher_workload(teacher)
+            kind_labels = [label for _, label in wl['kinds']]
+            cent = Decimal('0.01')
+            headers = ['Дисциплина', 'Семестр', 'Группы'] + kind_labels + ['Всего']
+            rows = []
+            for row in wl['rows']:
+                rows.append(
+                    [row['discipline'].name if row['discipline'] else '', row['semester'], row['groups']]
+                    + [h.quantize(cent) for h in row['hours_list']]
+                    + [row['total'].quantize(cent)]
                 )
-                for item in items
-            ]
-            return xlsx_response(
-                'my_workload.xlsx', 'Моя нагрузка',
-                ['Дисциплина', 'Вид работы', 'Группа', 'Подгруппа', 'Часы'], rows
+            # Итоговые строки
+            rows.append(
+                ['Всего за осенний семестр', '', '']
+                + [h.quantize(cent) for h in wl['fall_totals_list']]
+                + [wl['fall_totals_total'].quantize(cent)]
             )
+            rows.append(
+                ['Всего за весенний семестр', '', '']
+                + [h.quantize(cent) for h in wl['spring_totals_list']]
+                + [wl['spring_totals_total'].quantize(cent)]
+            )
+            rows.append(
+                ['ИТОГО ЗА ГОД', '', '']
+                + [h.quantize(cent) for h in wl['grand_totals_list']]
+                + [wl['grand_totals_total'].quantize(cent)]
+            )
+            return xlsx_response('my_workload.xlsx', 'Моя нагрузка', headers, rows)
 
         entries = JournalEntry.objects.filter(teacher=teacher).select_related(
             'load_item__discipline', 'load_item__group'
