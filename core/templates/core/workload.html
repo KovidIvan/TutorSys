@@ -3,60 +3,108 @@
 {% block title %}Моя нагрузка{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-md-8">
-        <div class="card mb-4">
-            <div class="card-header">
-                <h4 class="mb-0">📖 Моя учебная нагрузка</h4>
-            </div>
-            <div class="card-body">
-                {% if load_by_discipline %}
-                    {% for discipline, items in load_by_discipline.items %}
-                        <div class="mb-4">
-                            <h5 class="border-bottom pb-2">{{ discipline.name }}</h5>
-                            <table class="table table-sm">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Вид работы</th>
-                                        <th>Группа</th>
-                                        <th>Часы</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for item in items %}
-                                        <tr>
-                                            <td>{{ item.get_kind_display }}</td>
-                                            <td>{% if item.group %}{{ item.group.name }}{% if item.subgroup_no %} (подгр. {{ item.subgroup_no }}){% endif %}{% else %}Поток{% endif %}</td>
-                                            <td><strong>{{ item.hours }}</strong></td>
-                                        </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">📖 Учебная нагрузка — {{ teacher.full_name }}</h4>
+    <a class="btn btn-outline-primary btn-sm" href="{% url 'core:export_excel' 'workload' %}">📥 Скачать Excel</a>
+</div>
+
+{% if workload.has_data %}
+<div class="table-responsive">
+    <table class="table table-bordered table-hover table-sm align-middle" style="font-size: 0.88rem;">
+        <thead class="table-dark">
+            <tr>
+                <th>Дисциплина</th>
+                <th class="text-center">Сем.</th>
+                <th>Группы</th>
+                {% for _, label in workload.kinds %}
+                    <th class="text-center">{{ label }}</th>
+                {% endfor %}
+                <th class="text-center">Всего</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in workload.rows %}
+                <tr class="{% if row.season == 'fall' %}table-light{% endif %}">
+                    <td>
+                        <span class="fw-semibold">{{ row.discipline.name }}</span>
+                        {% if row.discipline.curriculum.specialty %}
+                            <div class="text-muted" style="font-size: 0.75rem;">
+                                {{ row.discipline.curriculum.specialty.abbr }}, сем. {{ row.semester }}
+                            </div>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">{{ row.semester }}</td>
+                    <td><small>{{ row.groups }}</small></td>
+                    {% for h in row.hours_list %}
+                        <td class="text-center">{% if h %}{{ h }}{% endif %}</td>
                     {% endfor %}
-                {% else %}
-                    <p class="text-muted">👋 Нет назначенной нагрузки</p>
-                {% endif %}
+                    <td class="text-center fw-bold">{{ row.total }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+
+        <tfoot>
+            {# Итого за осенний семестр #}
+            <tr class="table-warning fw-semibold">
+                <td colspan="3">📘 Всего за осенний семестр</td>
+                {% for h in workload.fall_totals_list %}
+                    <td class="text-center">{% if h %}{{ h }}{% endif %}</td>
+                {% endfor %}
+                <td class="text-center fw-bold">{{ workload.fall_totals_total }}</td>
+            </tr>
+
+            {# Итого за весенний семестр #}
+            <tr class="table-info fw-semibold">
+                <td colspan="3">📗 Всего за весенний семестр</td>
+                {% for h in workload.spring_totals_list %}
+                    <td class="text-center">{% if h %}{{ h }}{% endif %}</td>
+                {% endfor %}
+                <td class="text-center fw-bold">{{ workload.spring_totals_total }}</td>
+            </tr>
+
+            {# ИТОГО ЗА ГОД #}
+            <tr class="table-dark fw-bold">
+                <td colspan="3">🏆 ИТОГО ЗА ГОД</td>
+                {% for h in workload.grand_totals_list %}
+                    <td class="text-center">{% if h %}{{ h }}{% endif %}</td>
+                {% endfor %}
+                <td class="text-center">{{ workload.grand_totals_total }}</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+<div class="row mt-3">
+    <div class="col-md-4">
+        <div class="card border-primary">
+            <div class="card-body text-center">
+                <h6 class="card-title text-muted">Всего назначено часов</h6>
+                <div class="display-5 fw-bold text-primary">{{ total_hours }}</div>
+                <div class="text-muted mt-1 small">Норма: {{ teacher.effective_min_hours }}–{{ teacher.effective_max_hours }} ч</div>
             </div>
         </div>
     </div>
-
     <div class="col-md-4">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">📊 Итого</h5>
+        <div class="card border-warning">
+            <div class="card-body text-center">
+                <h6 class="card-title text-muted">Осенний семестр</h6>
+                <div class="display-5 fw-bold text-warning">{{ workload.fall_totals_total }}</div>
             </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <strong>Всего часов:</strong>
-                    <div class="display-4">{{ total_hours }}</div>
-                </div>
-                <div class="alert alert-info">
-                    <strong>Норма:</strong> {{ teacher.effective_min_hours }}–{{ teacher.effective_max_hours }} часов
-                </div>
-                <a class="btn btn-primary w-100" href="{% url 'core:export_excel' 'workload' %}">📥 Скачать Excel</a>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-info">
+            <div class="card-body text-center">
+                <h6 class="card-title text-muted">Весенний семестр</h6>
+                <div class="display-5 fw-bold text-info">{{ workload.spring_totals_total }}</div>
             </div>
         </div>
     </div>
 </div>
+
+{% else %}
+<div class="alert alert-info mt-3">
+    👋 Вам ещё не назначена учебная нагрузка. После распределения нагрузки зав. кафедрой здесь появится таблица.
+</div>
+{% endif %}
 {% endblock %}

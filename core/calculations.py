@@ -218,6 +218,160 @@ def teacher_total(teacher: Teacher) -> Decimal:
     return total or Decimal('0')
 
 
+# Порядок видов работ для страницы нагрузки преподавателя (как в образце из задания).
+WORKLOAD_KIND_ORDER = ('lec', 'pract', 'lab', 'usr', 'kr', 'consult', 'exam', 'credit')
+
+
+def teacher_workload(teacher: Teacher) -> Dict:
+    """
+    Построить матрицу нагрузки преподавателя для страницы /workload/.
+
+    Возвращает словарь:
+    {
+        'kinds': [(код, название), ...],          # столбцы таблицы
+        'rows': [                                  # строки по дисциплинам
+            {
+                'discipline': Discipline,
+                'semester': int,
+                'season': 'fall' | 'spring',
+                'hours': {код: Decimal, ...},      # часов по виду
+                'total': Decimal,                  # Всего по дисциплине
+                'groups': str,                     # группы/подгруппы (отображение)
+            },
+            ...
+        ],
+        'fall_totals': {код: Decimal, 'total': Decimal},
+        'spring_totals': {код: Decimal, 'total': Decimal},
+        'grand_totals': {код: Decimal, 'total': Decimal},
+        'has_data': bool,
+    }
+    Строки отсортированы: осенние семестры (нечётные) → весенние (чётные),
+    внутри сезона — по имени дисциплины.
+    """
+    from .models import LoadItem as _LoadItem
+
+    labels = dict(_LoadItem.KIND_CHOICES)
+    # Строим список кодов в нужном порядке — только те, что есть в KIND_CHOICES
+    kind_codes = [k for k in WORKLOAD_KIND_ORDER if k in labels]
+    # Добавляем виды, которых нет в WORKLOAD_KIND_ORDER (на будущее)
+    kind_codes += [k for k in labels if k not in kind_codes]
+
+    zero = Decimal('0')
+
+    items = _LoadItem.objects.filter(teacher=teacher).select_related('discipline', 'group').order_by(
+        'discipline__semester', 'discipline__name', 'kind'
+    )
+
+    # Агрегируем: (discipline, kind) -> sum(hours)
+    from django.db.models import Sum as _Sum
+    agg = (
+        _LoadItem.objects.filter(teacher=teacher)
+        .values('discipline', 'discipline__name', 'discipline__semester', 'kind')
+        .annotate(total=_Sum('hours'))
+        .order_by('discipline__semester', 'discipline__name', 'kind')
+    )
+
+    # Собираем по дисциплинам
+    disc_data: Dict = {}
+    for row in agg:
+        disc_id = row['discipline']
+        if disc_id not in disc_data:
+            disc_data[disc_id] = {
+                'discipline_id': disc_id,
+                'name': row['discipline__name'],
+                'semester': row['discipline__semester'],
+                'hours': {k: zero for k in kind_codes},
+                'total': zero,
+            }
+        kind = row['kind']
+        if kind in kind_codes:
+            disc_data[disc_id]['hours'][kind] = disc_data[disc_id]['hours'].get(kind, zero) + row['total']
+            disc_data[disc_id]['total'] += row['total']
+
+    # Получаем объекты дисциплин для отображения
+    from .models import Discipline as _Discipline
+    discipline_objs = {d.pk: d for d in _Discipline.objects.filter(
+        pk__in=list(disc_data.keys())
+    ).select_related('curriculum__specialty')}
+
+    # Собираем строки таблицы
+    rows = []
+    for disc_id, data in sorted(disc_data.items(), key=lambda x: (x[1]['semester'], x[1]['name'])):
+        semester = data['semester']
+        season = 'fall' if semester % 2 else 'spring'
+        disc_obj = discipline_objs.get(disc_id)
+
+        # Формируем строку отображения группы/подгрупп
+        groups_set = set()
+        for item in items.filter(discipline_id=disc_id):
+            if item.group:
+                label = item.group.name
+                if item.subgroup_no:
+                    label += f'/п{item.subgroup_no}'
+                groups_set.add(label)
+        groups_str = ', '.join(sorted(groups_set)) if groups_set else 'Поток'
+
+        rows.append({
+            'discipline': disc_obj,
+            'semester': semester,
+            'season': season,
+            'hours': data['hours'],
+            'total': data['total'],
+            'groups': groups_str,
+        })
+
+    # Итоги по сезонам
+    fall_totals = {k: zero for k in kind_codes}
+    fall_totals['total'] = zero
+    spring_totals = {k: zero for k in kind_codes}
+    spring_totals['total'] = zero
+    grand_totals = {k: zero for k in kind_codes}
+    grand_totals['total'] = zero
+
+    for row in rows:
+        totals = fall_totals if row['season'] == 'fall' else spring_totals
+        for k in kind_codes:
+            h = row['hours'].get(k, zero)
+            totals[k] += h
+            grand_totals[k] += h
+        totals['total'] += row['total']
+        grand_totals['total'] += row['total']
+
+    kinds = [(k, labels[k]) for k in kind_codes]
+
+    # Преобразуем rows в список (с часами как упорядоченным списком, чтобы шаблон не нуждался в фильтрах)
+    rows_list = []
+    for row in rows:
+        rows_list.append({
+            'discipline': row['discipline'],
+            'semester': row['semester'],
+            'season': row['season'],
+            'groups': row['groups'],
+            'total': row['total'],
+            'hours_list': [row['hours'].get(k, zero) for k in kind_codes],
+        })
+
+    def totals_list(t):
+        return [t.get(k, zero) for k in kind_codes]
+
+    return {
+        'kinds': kinds,
+        'rows': rows_list,
+        'fall_totals_list': totals_list(fall_totals),
+        'fall_totals_total': fall_totals['total'],
+        'spring_totals_list': totals_list(spring_totals),
+        'spring_totals_total': spring_totals['total'],
+        'grand_totals_list': totals_list(grand_totals),
+        'grand_totals_total': grand_totals['total'],
+        # Также возвращаем raw-словари для Excel-экспорта
+        '_kind_codes': kind_codes,
+        '_fall_totals': fall_totals,
+        '_spring_totals': spring_totals,
+        '_grand_totals': grand_totals,
+        'has_data': bool(rows_list),
+    }
+
+
 def check_teacher(teacher: Teacher) -> List[str]:
     """
     Проверить нагрузку преподавателя и вернуть список предупреждений.

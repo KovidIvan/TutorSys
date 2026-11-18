@@ -12,7 +12,7 @@ from .models import (
 )
 from .calculations import (
     calc_department_load, recalculate_department, teacher_total, check_teacher,
-    report_for_teacher, report_matrix
+    report_for_teacher, report_matrix, teacher_workload
 )
 from .views import check_teacher_status
 
@@ -951,6 +951,26 @@ class DistributionViewTestCase(TestCase):
         self.assertContains(response, '17')
         self.assertNotIn('_messages', self.client.session)
 
+    def test_distribution_groups_by_specialty_and_marks_specialization(self):
+        # Добавляем специализацию целевому преподавателю
+        self.target_teacher.specialization.add(self.discipline)
+
+        # Создаем вторую специальность и дисциплину на той же кафедре
+        spec2 = Specialty.objects.create(code='88.01.01', name='Вторая Спец', abbr='ВС')
+        cur2 = Curriculum.objects.create(specialty=spec2, admission_year=2025, study_form='full_time')
+        disc2 = Discipline.objects.create(curriculum=cur2, department=self.department, name='Вторая дисциплина', semester=2)
+        LoadItem.objects.create(discipline=disc2, kind='lec', hours=Decimal('20'))
+
+        response = self.client.get('/distribution/')
+        self.assertEqual(response.status_code, 200)
+
+        # Проверяем наличие группировки по обеим специальностям
+        self.assertContains(response, '99.02.01 — Тест (Т)')
+        self.assertContains(response, '88.01.01 — Вторая Спец (ВС)')
+
+        # Проверяем наличие галочки специализации для подходящей дисциплины
+        self.assertContains(response, f'✓ {self.target_teacher.full_name}')
+
 
 class TeachersPageTestCase(TestCase):
     """Страница «Преподаватели» зав. кафедрой: права и CRUD."""
@@ -1183,3 +1203,125 @@ class JournalValidationTestCase(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Группа / подгруппа')
         self.assertContains(resp, 'Гр-Ж1, п/г 1')
+
+
+class DeputyDeanAdminAccessTestCase(TestCase):
+    """Тесты доступа зам. декана к справочникам в админке (задача T3 Вариант A)."""
+
+    def setUp(self):
+        from django.contrib.contenttypes.models import ContentType
+        from django.contrib.auth.models import Permission
+
+        self.group_deputy, _ = AuthGroup.objects.get_or_create(name='deputy_dean')
+        ref_models = [Specialty, Group, Curriculum, Discipline, Department]
+        for model in ref_models:
+            ct = ContentType.objects.get_for_model(model)
+            perms = Permission.objects.filter(content_type=ct)
+            self.group_deputy.permissions.add(*perms)
+
+        self.user_deputy = User.objects.create_user('deputy_test', password='pass', is_staff=True)
+        self.user_deputy.groups.add(self.group_deputy)
+
+    def test_deputy_dean_has_access_to_directory_admins(self):
+        self.client.login(username='deputy_test', password='pass')
+        urls = [
+            '/admin/core/specialty/',
+            '/admin/core/group/',
+            '/admin/core/curriculum/',
+            '/admin/core/discipline/',
+            '/admin/core/department/',
+        ]
+        for url in urls:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200, f'Ожидался доступ 200 к {url}')
+
+
+class WorkloadPageTestCase(TestCase):
+    """T5: страница нагрузки преподавателя с матрицей и итогами по семестрам."""
+
+    def setUp(self):
+        self.teacher_group, _ = AuthGroup.objects.get_or_create(name='teacher')
+        self.head_group, _ = AuthGroup.objects.get_or_create(name='head')
+        self.specialty = Specialty.objects.create(code='05.01.01', name='ТестСпец', abbr='ТС')
+        self.curriculum = Curriculum.objects.create(
+            specialty=self.specialty, admission_year=2026, study_form='full_time'
+        )
+        self.department = Department.objects.create(name='Кафедра Т5')
+        self.position = PositionRule.objects.create(
+            position='Доцент', min_hours=840, max_hours=900, min_lecture_hours=100, can_lecture=True
+        )
+        self.group1 = Group.objects.create(
+            name='Гр-Т5', specialty=self.specialty, course=1, students_count=20, subgroups_count=2
+        )
+
+        self.user = User.objects.create_user(username='t5_teacher', password='pass')
+        self.user.groups.add(self.teacher_group)
+        self.teacher = Teacher.objects.create(
+            user=self.user, full_name='Тест Т5', department=self.department, position=self.position
+        )
+
+        # Дисциплина осеннего семестра (нечётный)
+        self.disc_fall = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.department,
+            name='Дисц Осень', semester=1, hours_lec=30, control_form='exam'
+        )
+        self.disc_fall.groups.add(self.group1)
+        # Дисциплина весеннего семестра (чётный)
+        self.disc_spring = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.department,
+            name='Дисц Весна', semester=2, hours_pract=20, control_form='credit'
+        )
+        self.disc_spring.groups.add(self.group1)
+
+        # Создаём нагрузку вручную
+        self.item_lec = LoadItem.objects.create(
+            discipline=self.disc_fall, kind='lec', hours=Decimal('30'), teacher=self.teacher
+        )
+        self.item_pract = LoadItem.objects.create(
+            discipline=self.disc_spring, kind='pract', group=self.group1,
+            hours=Decimal('20'), teacher=self.teacher
+        )
+
+    def test_workload_view_returns_200(self):
+        self.client.login(username='t5_teacher', password='pass')
+        response = self.client.get('/workload/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_workload_view_forbidden_for_non_teacher(self):
+        head_user = User.objects.create_user(username='t5_head', password='pass')
+        head_user.groups.add(self.head_group)
+        self.client.login(username='t5_head', password='pass')
+        response = self.client.get('/workload/')
+        self.assertEqual(response.status_code, 403)
+
+    def test_workload_contains_semester_totals(self):
+        self.client.login(username='t5_teacher', password='pass')
+        response = self.client.get('/workload/')
+        self.assertContains(response, 'осенний семестр')
+        self.assertContains(response, 'весенний семестр')
+        self.assertContains(response, 'ИТОГО ЗА ГОД')
+
+    def test_teacher_workload_function_totals(self):
+        """teacher_workload: grand_totals_total совпадает с teacher_total."""
+        wl = teacher_workload(self.teacher)
+        total_from_wl = wl['grand_totals_total']
+        total_from_fn = teacher_total(self.teacher)
+        self.assertEqual(total_from_wl, total_from_fn)
+
+    def test_teacher_workload_fall_spring_split(self):
+        """teacher_workload: осенний итог = 30 ч, весенний = 20 ч."""
+        wl = teacher_workload(self.teacher)
+        self.assertEqual(wl['fall_totals_total'], Decimal('30'))
+        self.assertEqual(wl['spring_totals_total'], Decimal('20'))
+        self.assertEqual(wl['grand_totals_total'], Decimal('50'))
+
+    def test_teacher_workload_rows_count(self):
+        """teacher_workload: по одной строке на дисциплину."""
+        wl = teacher_workload(self.teacher)
+        self.assertEqual(len(wl['rows']), 2)
+
+    def test_workload_contains_discipline_names(self):
+        self.client.login(username='t5_teacher', password='pass')
+        response = self.client.get('/workload/')
+        self.assertContains(response, 'Дисц Осень')
+        self.assertContains(response, 'Дисц Весна')
