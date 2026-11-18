@@ -3,11 +3,18 @@
 {% block title %}Параметры расчёта нагрузки{% endblock %}
 
 {% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+    <div>
+        <h2 class="h3 mb-1">Параметры расчёта нагрузки</h2>
+        <div class="text-muted">Нормативы расчёта часов, лимиты по должностям и пересчёт элементов нагрузки</div>
+    </div>
+</div>
+
 <div class="row">
-    <div class="col-md-8">
-        <div class="card mb-4">
-            <div class="card-header">
-                <h4 class="mb-0">Параметры расчёта нагрузки</h4>
+    <div class="col-lg-8">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white py-3">
+                <h5 class="card-title mb-0">Нормативы расчёта</h5>
             </div>
             <div class="card-body">
                 <form method="post">
@@ -15,7 +22,7 @@
                     <input type="hidden" name="action" value="update_settings">
 
                     <div class="row mb-3">
-                        <div class="col-md-6">
+                        <div class="col-md-6 mb-3 mb-md-0">
                             <label for="exam_hours_per_student" class="form-label">
                                 Часы экзамена на студента
                                 <small class="text-muted">(часы)</small>
@@ -37,7 +44,7 @@
                     </div>
 
                     <div class="row mb-3">
-                        <div class="col-md-6">
+                        <div class="col-md-6 mb-3 mb-md-0">
                             <label for="credit_hours_per_student" class="form-label">
                                 Часы зачёта на студента
                                 <small class="text-muted">(часы)</small>
@@ -58,8 +65,8 @@
                         </div>
                     </div>
 
-                    <div class="row mb-3">
-                        <div class="col-md-6">
+                    <div class="row mb-4">
+                        <div class="col-md-6 mb-3 mb-md-0">
                             <label for="kr_hours_per_student" class="form-label">
                                 Часы на контрольную работу на студента
                                 <small class="text-muted">(часы)</small>
@@ -81,7 +88,7 @@
                     </div>
 
                     <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-primary btn-lg">
+                        <button type="submit" class="btn btn-primary">
                             Сохранить параметры
                         </button>
                     </div>
@@ -90,10 +97,14 @@
         </div>
 
         <!-- Кнопка пересчёта -->
-        <div class="card bg-light mb-4">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white py-3">
+                <h5 class="card-title mb-0">
+                    {% if is_head %}Пересчёт нагрузки вашей кафедры{% else %}Пересчёт нагрузки кафедр{% endif %}
+                </h5>
+            </div>
             <div class="card-body">
                 {% if is_head %}
-                    <h5>Пересчёт нагрузки вашей кафедры</h5>
                     <p class="mb-3">
                         {% if user_department %}
                             Пересчитать часы элементов нагрузки для <strong>«{{ user_department.name }}»</strong> по текущим параметрам расчёта.
@@ -104,7 +115,7 @@
                     <form method="post" style="display: inline;">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="recalculate_department">
-                        <button type="submit" class="btn btn-warning btn-lg">
+                        <button type="submit" class="btn btn-primary">
                             Пересчитать часы моей кафедры
                         </button>
                     </form>
@@ -114,7 +125,6 @@
                         ✓ Нагрузка других кафедр не изменяется</small>
                     </p>
                 {% else %}
-                    <h5>Пересчёт нагрузки кафедр</h5>
                     <p class="mb-3">Выберите кафедру для пересчёта или пересчитайте нагрузку всех кафедр:</p>
                     <form method="post" class="d-flex flex-wrap gap-2 align-items-center mb-2">
                         {% csrf_token %}
@@ -125,7 +135,7 @@
                                 <option value="{{ dept.id }}">{{ dept.name }}</option>
                             {% endfor %}
                         </select>
-                        <button type="submit" class="btn btn-warning">
+                        <button type="submit" class="btn btn-primary">
                             Пересчитать нагрузку
                         </button>
                     </form>
@@ -139,53 +149,51 @@
     </div>
 
     <!-- Правая колонка: нормы по должностям -->
-    <div class="col-md-4">
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">Нормы по должностям</h5>
+    <div class="col-lg-4">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white py-3">
+                <h5 class="card-title mb-0">Нормы по должностям</h5>
             </div>
             <div class="card-body">
-                <div style="max-height: 600px; overflow-y: auto;">
+                <div class="position-list">
                     {% for rule in position_rules %}
-                        <div class="card mb-3 border-light">
-                            <div class="card-body p-2">
-                                <form method="post" class="position-form">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="action" value="update_position">
-                                    <input type="hidden" name="position_id" value="{{ rule.id }}">
+                        <div class="glass-subcard mb-3">
+                            <form method="post" class="position-form">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="update_position">
+                                <input type="hidden" name="position_id" value="{{ rule.id }}">
 
-                                    <div class="position-title mb-2">
-                                        <strong>{{ rule.position }}</strong>
-                                        {% if rule.can_lecture %}<span class="badge bg-success ms-2">Лекции</span>{% else %}<span class="badge bg-secondary ms-2">Практика</span>{% endif %}
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <strong>{{ rule.position }}</strong>
+                                    {% if rule.can_lecture %}<span class="badge bg-success">Лекции</span>{% else %}<span class="badge bg-secondary">Практика</span>{% endif %}
+                                </div>
+
+                                <div class="mb-2">
+                                    <label class="form-label form-label-sm mb-1">Min–Max часов/год</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" class="form-control" name="min_hours" value="{{ rule.min_hours }}" required>
+                                        <span class="input-group-text">–</span>
+                                        <input type="number" class="form-control" name="max_hours" value="{{ rule.max_hours }}" required>
                                     </div>
+                                </div>
 
-                                    <div class="mb-2">
-                                        <label class="form-label form-label-sm">Min–Max часов/год</label>
-                                        <div class="input-group input-group-sm">
-                                            <input type="number" class="form-control" name="min_hours" value="{{ rule.min_hours }}" required>
-                                            <span class="input-group-text">–</span>
-                                            <input type="number" class="form-control" name="max_hours" value="{{ rule.max_hours }}" required>
-                                        </div>
-                                    </div>
+                                <div class="mb-2">
+                                    <label class="form-label form-label-sm mb-1">Min лекций/год</label>
+                                    <input type="number" class="form-control form-control-sm" name="min_lecture_hours" value="{{ rule.min_lecture_hours }}" required>
+                                </div>
 
-                                    <div class="mb-2">
-                                        <label class="form-label form-label-sm">Min лекций/год</label>
-                                        <input type="number" class="form-control form-control-sm" name="min_lecture_hours" value="{{ rule.min_lecture_hours }}" required>
-                                    </div>
+                                <div class="form-check mb-2">
+                                    <input type="checkbox" class="form-check-input" id="can_lecture_{{ rule.id }}"
+                                           name="can_lecture" {% if rule.can_lecture %}checked{% endif %}>
+                                    <label class="form-check-label form-check-label-sm" for="can_lecture_{{ rule.id }}">
+                                        Может читать лекции
+                                    </label>
+                                </div>
 
-                                    <div class="form-check mb-2">
-                                        <input type="checkbox" class="form-check-input" id="can_lecture_{{ rule.id }}"
-                                               name="can_lecture" {% if rule.can_lecture %}checked{% endif %}>
-                                        <label class="form-check-label form-check-label-sm" for="can_lecture_{{ rule.id }}">
-                                            Может читать лекции
-                                        </label>
-                                    </div>
-
-                                    <button type="submit" class="btn btn-sm btn-outline-primary w-100">
-                                        Сохранить
-                                    </button>
-                                </form>
-                            </div>
+                                <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+                                    Сохранить
+                                </button>
+                            </form>
                         </div>
                     {% empty %}
                         <p class="text-muted">Нет должностей</p>
@@ -197,7 +205,7 @@
                     {% csrf_token %}
                     <input type="hidden" name="action" value="add_position">
 
-                    <h6>Новая должность</h6>
+                    <h6 class="mb-2">Новая должность</h6>
 
                     <div class="mb-2">
                         <input type="text" class="form-control form-control-sm" name="new_position_name"
@@ -221,7 +229,7 @@
                         </label>
                     </div>
 
-                    <button type="submit" class="btn btn-sm btn-success w-100">
+                    <button type="submit" class="btn btn-sm btn-primary w-100">
                         Добавить должность
                     </button>
                 </form>
