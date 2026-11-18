@@ -1,4 +1,2 @@
-* text=auto
-*.py text eol=lf
-*.html text eol=lf
-*.md text eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf

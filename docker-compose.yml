@@ -1,0 +1,16 @@
+services:
+  web:
+    build: .
+    container_name: scale_web
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - DEBUG=${DEBUG:-True}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      - SQLITE_PATH=/app/data/db.sqlite3
+    volumes:
+      - scale_data:/app/data
+
+volumes:
+  scale_data:
