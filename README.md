@@ -211,45 +211,127 @@ docker compose logs -f
 
 <br>
 
+<img src="core/static/core/img/readme/sec-db.svg" width="100%" alt="Очистка, сброс и заполнение базы данных">
+
+В процессе работы часто требуется либо полностью очистить базу данных от демо-записей перед загрузкой реального Excel-файла кафедры, либо, наоборот, заново накатить демонстрационные данные и стандартные аккаунты (`deputy_dean`, `head`, `teacher` с паролем `pass123`).
+
+### 1. Сбросить БД и заново заполнить демо-данными (восстановить `deputy_dean`, `head`, `teacher`)
+
+- **На личном сервере VDS (через `deploy.sh` или напрямую):**
+  ```bash
+  cd ~/TutorSys
+  ./deploy.sh --reset-db
+  ```
+  *(или вручную через Python виртуального окружения):*
+  ```bash
+  cd ~/TutorSys && .venv/bin/python manage.py shell -c "from core.seed import run; run()"
+  ```
+
+- **В контейнере Docker:**
+  ```bash
+  docker compose exec web python manage.py shell -c "from core.seed import run; run()"
+  ```
+
+- **Локально на Windows (PowerShell):**
+  ```powershell
+  .\.venv\Scripts\python.exe manage.py shell -c "from core.seed import run; run()"
+  ```
+
+---
+
+### 2. Полностью очистить БД до пустого состояния (удалить все таблицы и демо-аккаунты)
+
+> [!WARNING]
+> Полная очистка (`flush`) удаляет из базы **все записи, включая пользователей** `deputy_dean`, `head` и `teacher`. После полной очистки вы не сможете войти под демо-логинами, пока либо не создадите своего администратора (`createsuperuser`), либо снова не загрузите демо-набор (`--reset-db`).
+
+- **На личном сервере VDS:**
+  ```bash
+  cd ~/TutorSys
+  ./deploy.sh --clear-db
+  # Или напрямую:
+  .venv/bin/python manage.py flush --noinput
+  ```
+  Создание собственного администратора на пустой базе:
+  ```bash
+  .venv/bin/python manage.py createsuperuser
+  ```
+
+- **В контейнере Docker:**
+  ```bash
+  # Очистить все таблицы внутри работающего контейнера:
+  docker compose exec web python manage.py flush --noinput
+
+  # Создать суперпользователя на чистой базе в Docker:
+  docker compose exec web python manage.py createsuperuser
+
+  # Альтернатива: удалить сам том базы данных и пересоздать контейнер с нуля:
+  docker compose down -v && docker compose up -d --build
+  ```
+
+- **Локально на Windows (PowerShell):**
+  ```powershell
+  .\.venv\Scripts\python.exe manage.py flush --noinput
+  .\.venv\Scripts\python.exe manage.py createsuperuser
+  ```
+
+<br>
+
 <img src="core/static/core/img/readme/sec-stop.svg" width="100%" alt="Как остановить и полностью закрыть проект">
 
 Чтобы приложение не оставалось висеть фоновым процессом и не занимало оперативную память или порт `8000`, используйте соответствующую вашему способу запуска команду:
 
-### 1. Остановка на Linux-сервере VDS (`deploy.sh`)
+### 1. Остановка процесса на Linux-сервере VDS (`deploy.sh` и `systemd`)
 
-- **Универсальная команда остановки (останавливает и фоновый сервис `systemd`, и запущенный процесс `runserver`):**
+- **Универсальная команда одной строкой (останавливает и фоновый сервис `systemd`, и любой запущенный процесс `runserver`):**
   ```bash
-  ./deploy.sh --stop
+  cd ~/TutorSys && ./deploy.sh --stop
   ```
-- **Если сервер был запущен в интерактивном терминале (`./deploy.sh` без `--systemd`):**
-  Нажмите комбинацию клавиш <kbd>Ctrl</kbd> + <kbd>C</kbd> в окне терминала.
-- **Если нужно вручную управлять `systemd`-сервисом или полностью удалить его из автозагрузки:**
+- **Если сервер запущен прямо в открытом окне терминала (`./deploy.sh` без флага `--systemd`):**
+  Нажмите комбинацию клавиш <kbd>Ctrl</kbd> + <kbd>C</kbd>. Если терминал был закрыт, а процесс остался в памяти, завершите его командой:
   ```bash
-  # Остановить сервис прямо сейчас
+  pkill -f "manage.py runserver"
+  ```
+- **Управление фоновым сервисом `systemd` (`scale.service`):**
+  ```bash
+  # Посмотреть текущий статус и потребление памяти (RAM / CPU)
+  sudo systemctl status scale.service
+
+  # Перезапустить сервис (например, после git pull)
+  sudo systemctl restart scale.service
+
+  # Временно остановить сервис
   sudo systemctl stop scale.service
 
-  # Отключить автозапуск при перезагрузке VDS
+  # Отключить автозапуск сервиса при перезагрузке сервера
   sudo systemctl disable scale.service
 
-  # Полностью удалить файл сервиса (опционально)
+  # Полностью удалить сервис из системы (опционально)
   sudo rm -f /etc/systemd/system/scale.service && sudo systemctl daemon-reload
   ```
-- **Проверка, что порт `8000` полностью свободен и в памяти нет висящих процессов:**
+- **Проверка, что порт `8000` свободен и в памяти сервера нет висящих процессов:**
   ```bash
   pgrep -af "manage.py runserver" || echo "Ни одного процесса не запущено"
   ```
 
-### 2. Остановка в Docker (`Docker Compose`)
+### 2. Остановка контейнера в Docker (`Docker Compose`)
 
-- **Остановить и удалить работающий контейнер (база данных в томе `scale_data` сохранится):**
+- **Временно поставить контейнер на паузу без удаления:**
+  ```bash
+  docker compose stop
+  ```
+- **Запустить остановленный контейнер снова:**
+  ```bash
+  docker compose start
+  ```
+- **Полностью остановить и выгрузить контейнер из памяти (база данных в томе `scale_data` сохраняется):**
   ```bash
   docker compose down
   ```
-- **Полная очистка: остановить контейнер и удалить том с базой данных (сброс к нулевому состоянию):**
+- **Полностью остановить контейнер и стереть том с базой данных:**
   ```bash
   docker compose down -v
   ```
-- **Проверка, что контейнер не висит в фоне:**
+- **Проверить, что в Docker не осталось запущенных контейнеров:**
   ```bash
   docker ps
   ```

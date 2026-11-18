@@ -16,12 +16,16 @@ PORT="${PORT:-8000}"
 LOAD_SEED=true
 INSTALL_SYSTEMD=false
 STOP_SERVICE=false
+CLEAR_DB=false
+RESET_DB=false
 
 for arg in "$@"; do
     case "$arg" in
         --no-seed) LOAD_SEED=false ;;
         --systemd) INSTALL_SYSTEMD=true ;;
         --stop) STOP_SERVICE=true ;;
+        --clear-db) CLEAR_DB=true ;;
+        --reset-db) RESET_DB=true ;;
         --port=*) PORT="${arg#*=}" ;;
     esac
 done
@@ -34,6 +38,21 @@ if [ "$STOP_SERVICE" = true ]; then
         echo "Фоновый сервис systemd (scale.service) остановлен и отключён."
     fi
     pkill -f "manage.py runserver" 2>/dev/null && echo "Запущенный процесс runserver завершён." || echo "Активных процессов runserver не найдено."
+    exit 0
+fi
+
+if [ "$CLEAR_DB" = true ]; then
+    echo "==> Полная очистка базы данных (до пустого состояния)..."
+    .venv/bin/python manage.py flush --noinput
+    echo "База данных полностью очищена."
+    exit 0
+fi
+
+if [ "$RESET_DB" = true ]; then
+    echo "==> Сброс базы данных и повторная загрузка демо-данных..."
+    .venv/bin/python manage.py flush --noinput
+    .venv/bin/python manage.py shell -c "from core.seed import run; run()"
+    echo "Демо-данные и пользователи (deputy_dean, head, teacher) успешно восстановлены."
     exit 0
 fi
 
