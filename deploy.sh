@@ -15,14 +15,27 @@ cd "$APP_DIR"
 PORT="${PORT:-8000}"
 LOAD_SEED=true
 INSTALL_SYSTEMD=false
+STOP_SERVICE=false
 
 for arg in "$@"; do
     case "$arg" in
         --no-seed) LOAD_SEED=false ;;
         --systemd) INSTALL_SYSTEMD=true ;;
+        --stop) STOP_SERVICE=true ;;
         --port=*) PORT="${arg#*=}" ;;
     esac
 done
+
+if [ "$STOP_SERVICE" = true ]; then
+    echo "==> Остановка S.C.A.L.E..."
+    if systemctl list-unit-files | grep -q "^scale.service"; then
+        sudo systemctl stop scale.service || true
+        sudo systemctl disable scale.service || true
+        echo "Фоновый сервис systemd (scale.service) остановлен и отключён."
+    fi
+    pkill -f "manage.py runserver" 2>/dev/null && echo "Запущенный процесс runserver завершён." || echo "Активных процессов runserver не найдено."
+    exit 0
+fi
 
 echo "==> [1/5] Проверка Python и виртуального окружения..."
 if ! command -v python3 >/dev/null 2>&1; then

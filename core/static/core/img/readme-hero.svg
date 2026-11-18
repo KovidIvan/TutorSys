@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="100%">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#030712"/>
+      <stop offset="50%" stop-color="#07132c"/>
+      <stop offset="100%" stop-color="#050b1a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#1d4ed8" stop-opacity="0.45"/>
+      <stop offset="60%" stop-color="#0f2347" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#030712" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wave1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2563eb" stop-opacity="0.38"/>
+      <stop offset="100%" stop-color="#0a1936" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="wave2" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#1e3a8a" stop-opacity="0.08"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e3a8a" stop-opacity="0.38"/>
+      <stop offset="100%" stop-color="#09152e" stop-opacity="0.58"/>
+    </linearGradient>
+    <linearGradient id="borderGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#93c5fd" stop-opacity="0.5"/>
+      <stop offset="50%" stop-color="#3b82f6" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#93c5fd" stop-opacity="0.35"/>
+    </linearGradient>
+    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#93c5fd"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="320" rx="22" fill="url(#bg)"/>
+  <rect width="1200" height="320" rx="22" fill="url(#glow)"/>
+
+  <path d="M-40,260 C240,90 540,70 820,210 C980,290 1120,240 1240,150 L1240,340 L-40,340 Z" fill="url(#wave1)"/>
+  <path d="M180,-20 C460,140 760,150 1060,20 L1240,110 L1240,340 L180,340 Z" fill="url(#wave2)"/>
+
+  <!-- Стеклянная центральная карточка -->
+  <rect x="190" y="42" width="820" height="236" rx="24" fill="url(#glass)" stroke="url(#borderGrad)" stroke-width="1.5"/>
+
+  <text x="600" y="138" text-anchor="middle" fill="url(#titleGrad)"
+        font-family="Georgia, 'Times New Roman', serif" font-size="56" font-weight="bold" letter-spacing="14">
+    S.C.A.L.E
+  </text>
+
+  <text x="600" y="176" text-anchor="middle" fill="#bfdbfe" opacity="0.88"
+        font-family="'Segoe UI', Inter, system-ui, sans-serif" font-size="13" font-weight="600" letter-spacing="5">
+    STAFF CURRICULUM &amp; ALLOCATION LEDGER ENGINE
+  </text>
+
+  <line x1="520" y1="198" x2="680" y2="198" stroke="#60a5fa" stroke-opacity="0.55" stroke-width="1.2"/>
+
+  <text x="600" y="228" text-anchor="middle" fill="#e2e8f0" opacity="0.8"
+        font-family="'Segoe UI', Inter, system-ui, sans-serif" font-size="15" letter-spacing="0.8">
+    Система расчёта, распределения и контроля выполнения учебной нагрузки
+  </text>
+</svg>
