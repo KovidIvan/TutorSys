@@ -189,8 +189,22 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {
     color: var(--navy-800);
     font-family: var(--serif);
 }
-.table-secondary, .table-secondary > th, .table-secondary > td {
+.table-secondary, .table-secondary > th, .table-secondary > td:not(.table-danger):not(.table-success) {
     background: rgba(15, 35, 71, 0.09) !important;
+}
+.table td.table-danger, .table th.table-danger, .table-secondary > td.table-danger {
+    background: rgba(220, 38, 38, 0.18) !important;
+    color: #991b1b !important;
+}
+.table td.table-danger .report-detail {
+    color: #b91c1c !important;
+}
+.table td.table-success, .table th.table-success, .table-secondary > td.table-success {
+    background: rgba(22, 163, 74, 0.18) !important;
+    color: #166534 !important;
+}
+.table td.table-success .report-detail {
+    color: #15803d !important;
 }
 
 /* ---------- Формы ---------- */

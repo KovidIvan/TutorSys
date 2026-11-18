@@ -546,9 +546,10 @@ def _report_cell(
     """Ячейка матрицы. Цвет (css) задаётся только для итоговых ячеек; title — для окна расшифровки."""
     delta = fact - plan
     status = _delta_status(delta)
+    has_data = bool(plan or fact)
     css = ''
-    if colored:
-        css = {'under': 'table-danger', 'over': 'table-success'}.get(status, '')
+    if colored and has_data:
+        css = 'table-danger' if status == 'under' else 'table-success'
     return {
         'month': month,
         'kind': kind,
@@ -558,7 +559,7 @@ def _report_cell(
         'status': status,
         'css': css,
         'title': title,
-        'has_data': bool(plan or fact),
+        'has_data': has_data,
     }
 
 

@@ -97,7 +97,7 @@
             <div class="card-body text-center text-muted">Данных о нагрузке за выбранный год пока нет.</div>
         {% endif %}
         <div class="card-footer small text-muted">
-            В ячейке — факт, под ним — план. Итоги <span class="badge text-bg-danger">красные</span>, если факт ниже плана более чем на {{ tolerance|floatformat:"-2" }} ч (недовыполнение), и <span class="badge text-bg-success">зелёные</span>, если выше (перевыполнение).
+            В ячейке — факт, под ним — план. Итоги <span class="badge bg-danger">красные</span>, если факт ниже плана более чем на {{ tolerance|floatformat:"-2" }} ч (недовыполнение), и <span class="badge bg-success">зелёные</span>, если план выполнен или перевыполнен.
             Нажмите на число, чтобы увидеть дисциплины, преподавателей и причины.
         </div>
     </div>
