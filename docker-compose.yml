@@ -1,0 +1,18 @@
+services:
+  web:
+    build: .
+    container_name: scale_web
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - DEBUG=${DEBUG:-True}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      - SQLITE_PATH=/app/data/db.sqlite3
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_WEBAPP_URL=${TELEGRAM_WEBAPP_URL:-}
+    volumes:
+      - scale_data:/app/data
+
+volumes:
+  scale_data:

@@ -5,8 +5,8 @@
     <div class="col-md-8">
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center gap-2">
-                <h4 class="mb-0">📖 Мой журнал учебных занятий</h4>
-                <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'journal' %}">📥 Скачать Excel</a>
+                <h4 class="mb-0">Мой журнал учебных занятий</h4>
+                <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'journal' %}">Скачать Excel</a>
             </div>
             <div class="card-body">
                 {% if journal_entries %}
@@ -18,6 +18,7 @@
                                     <th>Время</th>
                                     <th>Дисциплина</th>
                                     <th>Вид</th>
+                                    <th>Группа / подгруппа</th>
                                     <th>Часы</th>
                                     <th>Тема</th>
                                 </tr>
@@ -29,7 +30,16 @@
                                         <td>{% if entry.time %}{{ entry.time }}{% else %}-{% endif %}</td>
                                         <td><small>{{ entry.load_item.discipline.name }}</small></td>
                                         <td><span class="badge bg-info">{{ entry.load_item.get_kind_display }}</span></td>
-                                        <td>{{ entry.hours }}</td>
+                                        <td>
+                                            <small>
+                                                {% if entry.load_item.group %}
+                                                    {{ entry.load_item.group.name }}{% if entry.load_item.subgroup_no %}-{{ entry.load_item.subgroup_no }}{% endif %}
+                                                {% else %}
+                                                    Поток
+                                                {% endif %}
+                                            </small>
+                                        </td>
+                                        <td>{{ entry.hours|floatformat:"-2" }}</td>
                                         <td><small>{{ entry.topic|truncatewords:10 }}</small></td>
                                     </tr>
                                 {% endfor %}
@@ -45,39 +55,43 @@
     <div class="col-md-4">
         <div class="card mb-4">
             <div class="card-header">
-                <h5 class="mb-0">➕ Добавить запись</h5>
+                <h5 class="mb-0">Добавить запись</h5>
             </div>
             <div class="card-body">
-                <form method="post">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="add_entry">
-                    <div class="mb-3">
-                        <label class="form-label">Дисциплина и вид работы</label>
-                        <select name="load_item_id" class="form-select" required>
-                            <option value="">Выберите...</option>
-                            {% for item in load_items %}
-                                <option value="{{ item.id }}">{{ item.discipline.name }} - {{ item.get_kind_display }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Дата</label>
-                        <input type="date" name="date" class="form-control" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Время (опционально)</label>
-                        <input type="time" name="time" class="form-control">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Часы</label>
-                        <input type="number" name="hours" class="form-control" step="0.5" min="0" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Тема занятия</label>
-                        <textarea name="topic" class="form-control" rows="3" required></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100">Добавить запись</button>
-                </form>
+                {% if load_items %}
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="add_entry">
+                        <div class="mb-3">
+                            <label class="form-label">Дисциплина и вид работы</label>
+                            <select name="load_item_id" class="form-select" required>
+                                <option value="">Выберите...</option>
+                                {% for item in load_items %}
+                                    <option value="{{ item.id }}">{{ item.discipline.name }} — {{ item.get_kind_display }} ({% if item.group %}{{ item.group.name }}{% if item.subgroup_no %}-{{ item.subgroup_no }}{% endif %}{% else %}Поток{% endif %})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Дата</label>
+                            <input type="date" name="date" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Время (опционально)</label>
+                            <input type="time" name="time" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Часы</label>
+                            <input type="number" name="hours" class="form-control" step="any" min="0.01" placeholder="Например, 1.5" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Тема занятия</label>
+                            <textarea name="topic" class="form-control" rows="3" required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Добавить запись</button>
+                    </form>
+                {% else %}
+                    <p class="text-muted mb-0">Вам пока не назначена нагрузка. Обратитесь к заведующему кафедрой.</p>
+                {% endif %}
             </div>
         </div>
     </div>

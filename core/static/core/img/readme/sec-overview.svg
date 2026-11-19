@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 76" width="100%">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#050b1a"/>
+      <stop offset="55%" stop-color="#0f2347"/>
+      <stop offset="100%" stop-color="#17366e"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0.0"/>
+    </linearGradient>
+    <linearGradient id="border" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#93c5fd" stop-opacity="0.18"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="1198" height="74" rx="14" fill="url(#bg)" stroke="url(#border)" stroke-width="1.5"/>
+  <path d="M0,75 C260,15 620,65 1200,10 L1200,75 Z" fill="url(#glow)"/>
+  <rect x="18" y="14" width="48" height="48" rx="12" fill="#1e3a8a" fill-opacity="0.55" stroke="#60a5fa" stroke-opacity="0.5" stroke-width="1.2"/>
+  <g transform="translate(22, 18) scale(0.625)">
+    <rect x="29.5" y="25" width="5" height="22" fill="#2563eb" stroke="#60a5fa" stroke-width="0.8"/>
+    <polygon points="24,21 24,28.5 32,31.5 40,28.5 40,21" fill="#1d4ed8" stroke="#93c5fd" stroke-width="1.2"/>
+    <line x1="45" y1="19.3" x2="45" y2="24" stroke="#ffffff" stroke-width="1.6"/>
+    <polygon points="43.5,23.8 46.5,23.8 47.3,27.2 42.7,27.2" fill="#ffffff"/>
+    <polygon points="32,10 15,17 32,24" fill="#3b82f6"/>
+    <polygon points="32,10 49,17 32,24" fill="#1e3a8a"/>
+    <polygon points="32,10 49,17 32,24 15,17" fill="none" stroke="#dbeafe" stroke-width="1.4"/>
+    <path d="M17,28.5 L26,28.5 C29.5,28.5 31,30 32,33 C33,30 34.5,28.5 38,28.5 L47,28.5" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16.5" y1="29.5" x2="11.5" y2="39" stroke="#dbeafe" stroke-width="1.3"/>
+    <line x1="17.5" y1="29.5" x2="22.5" y2="39" stroke="#dbeafe" stroke-width="1.3"/>
+    <path d="M10,39 C10,44.5 24,44.5 24,39 Z" fill="#3b82f6" stroke="#dbeafe" stroke-width="1.1"/>
+    <line x1="46.5" y1="29.5" x2="41.5" y2="39" stroke="#dbeafe" stroke-width="1.3"/>
+    <line x1="47.5" y1="29.5" x2="52.5" y2="39" stroke="#dbeafe" stroke-width="1.3"/>
+    <path d="M40,39 C40,44.5 54,44.5 54,39 Z" fill="#3b82f6" stroke="#dbeafe" stroke-width="1.1"/>
+    <path d="M25,46.5 L39,46.5 L40.5,49.5 L23.5,49.5 Z" fill="#dbeafe"/>
+    <path d="M21.5,49.5 L42.5,49.5 L44,52.5 L20,52.5 Z" fill="#2563eb" stroke="#60a5fa" stroke-width="1"/>
+  </g>
+  <text x="82" y="36" fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-size="20" font-weight="bold" letter-spacing="1.2">О проекте S.C.A.L.E</text>
+  <text x="82" y="56" fill="#93c5fd" opacity="0.85" font-family="'Segoe UI', Inter, system-ui, sans-serif" font-size="12" font-weight="500" letter-spacing="1.5">АРХИТЕКТУРА И КЛЮЧЕВЫЕ ВОЗМОЖНОСТИ ПЛАТФОРМЫ</text>
+</svg>

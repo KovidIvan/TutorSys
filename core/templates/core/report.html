@@ -1,25 +1,34 @@
 {% extends 'core/base.html' %}
 
-{% block title %}Отчёт план/факт — {{ teacher.full_name }}{% endblock %}
+{% block title %}Выполнение нагрузки — {{ report_title }}{% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container-fluid">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
         <div>
-            <h1 class="h3 mb-1">Отчёт план/факт</h1>
-            <div class="text-muted">{{ teacher.full_name }} · {{ teacher.department.name }}</div>
+            <h1 class="h3 mb-1">Выполнение нагрузки</h1>
+            <div class="text-muted">{{ report_title }}{% if department %} · {{ department.name }}{% endif %}</div>
         </div>
-        <form method="get" class="d-flex gap-2 align-items-center">
-            {% if is_head %}
-                <label for="teacher_id" class="form-label mb-0">Преподаватель</label>
-                <select id="teacher_id" name="teacher_id" class="form-select">
+        <form method="get" class="d-flex flex-wrap gap-2 align-items-center">
+            {% if is_deputy_dean or user.is_staff %}
+                <label for="department_id" class="form-label mb-0">Кафедра</label>
+                <select id="department_id" name="department_id" class="form-select w-auto" onchange="this.form.submit()">
+                    {% for d in all_departments %}
+                        <option value="{{ d.pk }}" {% if department and d.pk == department.pk %}selected{% endif %}>{{ d.name }}</option>
+                    {% endfor %}
+                </select>
+            {% endif %}
+            {% if is_head or is_deputy_dean or user.is_staff %}
+                <label for="teacher_id" class="form-label mb-0">Показать</label>
+                <select id="teacher_id" name="teacher_id" class="form-select w-auto">
+                    <option value="" {% if not teacher %}selected{% endif %}>Вся кафедра</option>
                     {% for item in teachers %}
                         <option value="{{ item.pk }}" {% if item.pk == teacher.pk %}selected{% endif %}>{{ item.full_name }}</option>
                     {% endfor %}
                 </select>
             {% endif %}
             <label for="year" class="form-label mb-0">Год</label>
-            <select id="year" name="year" class="form-select">
+            <select id="year" name="year" class="form-select w-auto">
                 {% for option_year in years %}
                     <option value="{{ option_year }}" {% if option_year == year %}selected{% endif %}>{{ option_year }}</option>
                 {% endfor %}
@@ -31,55 +40,74 @@
     <div class="card shadow-sm mb-4">
         <div class="card-header d-flex justify-content-between align-items-center gap-2">
             <span>План и факт по месяцам · {{ year }}</span>
-            <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'report' %}?year={{ year }}{% if is_head %}&amp;teacher_id={{ teacher.pk }}{% endif %}">📥 Скачать Excel</a>
+            <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'report' %}?year={{ year }}{% if teacher %}&amp;teacher_id={{ teacher.pk }}{% endif %}{% if is_deputy_dean and department %}&amp;department_id={{ department.pk }}{% endif %}">Скачать Excel</a>
         </div>
         <div class="table-responsive">
-            <table class="table table-sm table-striped table-hover align-middle mb-0">
-                <thead>
+            <table class="table table-sm table-bordered align-middle text-center mb-0">
+                <thead class="table-light">
                     <tr>
-                        <th>Месяц</th>
-                        <th>Вид работы</th>
-                        <th class="text-end">План, ч</th>
-                        <th class="text-end">Факт, ч</th>
-                        <th class="text-end">Отклонение, ч</th>
-                        <th>Причины</th>
+                        <th class="text-start">Месяц</th>
+                        {% for kind, label in matrix.kinds %}<th>{{ label }}</th>{% endfor %}
+                        <th>Всего</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% if has_load %}
-                        {% for month in months %}
-                            {% for row in month.rows %}
-                                <tr class="{% if row.values.status == 'under' %}table-danger{% elif row.values.status == 'over' %}table-success{% endif %}">
-                                    <td>{{ month.name }}</td>
-                                    <td>{{ row.kind_display }}</td>
-                                    <td class="text-end">{{ row.values.plan|floatformat:2 }}</td>
-                                    <td class="text-end">{{ row.values.fact|floatformat:2 }}</td>
-                                    <td class="text-end">{{ row.values.delta|floatformat:2 }}</td>
-                                    <td>
-                                        {% if row.adjustments %}
-                                            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#reasons-{{ month.number }}-{{ row.kind }}">
-                                                Просмотреть ({{ row.adjustments|length }})
-                                            </button>
-                                        {% else %}
-                                            <span class="text-muted">—</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
+                    {% for row in matrix.rows %}
+                        <tr>
+                            <th class="text-start fw-normal">{{ row.name }}</th>
+                            {% for cell in row.cells %}
+                                <td>
+                                    {% if cell.has_data %}
+                                        <button type="button" class="btn btn-link p-0 text-decoration-none report-detail" data-month="{{ cell.month }}" data-kind="{{ cell.kind }}" data-title="{{ cell.title }}" title="План {{ cell.plan|floatformat:'-2' }} ч, отклонение {{ cell.delta|floatformat:'-2' }} ч">{{ cell.fact|floatformat:"-2" }}</button>
+                                        <div class="small text-muted">план {{ cell.plan|floatformat:"-2" }}</div>
+                                    {% endif %}
+                                </td>
                             {% endfor %}
-                        {% endfor %}
-                    {% else %}
-                        <tr><td colspan="6" class="text-center text-muted py-4">Данных о нагрузке пока нет.</td></tr>
-                    {% endif %}
+                            <td class="fw-bold {{ row.total.css }}">
+                                {% if row.total.has_data %}
+                                    <button type="button" class="btn btn-link p-0 text-decoration-none fw-bold report-detail" data-month="{{ row.total.month }}" data-kind="{{ row.total.kind }}" data-title="{{ row.total.title }}" title="План {{ row.total.plan|floatformat:'-2' }} ч, отклонение {{ row.total.delta|floatformat:'-2' }} ч">{{ row.total.fact|floatformat:"-2" }}</button>
+                                    <div class="small fw-normal text-muted">план {{ row.total.plan|floatformat:"-2" }}</div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
                 </tbody>
+                <tfoot>
+                    <tr class="table-secondary">
+                        <th class="text-start">Итого за год</th>
+                        {% for cell in matrix.totals.cells %}
+                            <td class="fw-bold {{ cell.css }}">
+                                {% if cell.has_data %}
+                                    <button type="button" class="btn btn-link p-0 text-decoration-none fw-bold report-detail" data-month="{{ cell.month }}" data-kind="{{ cell.kind }}" data-title="{{ cell.title }}" title="План {{ cell.plan|floatformat:'-2' }} ч, отклонение {{ cell.delta|floatformat:'-2' }} ч">{{ cell.fact|floatformat:"-2" }}</button>
+                                    <div class="small fw-normal text-muted">план {{ cell.plan|floatformat:"-2" }}</div>
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                        <td class="fw-bold {{ matrix.totals.total.css }}">
+                            {% if matrix.totals.total.has_data %}
+                                <button type="button" class="btn btn-link p-0 text-decoration-none fw-bold report-detail" data-month="{{ matrix.totals.total.month }}" data-kind="{{ matrix.totals.total.kind }}" data-title="{{ matrix.totals.total.title }}" title="План {{ matrix.totals.total.plan|floatformat:'-2' }} ч, отклонение {{ matrix.totals.total.delta|floatformat:'-2' }} ч">{{ matrix.totals.total.fact|floatformat:"-2" }}</button>
+                                <div class="small fw-normal text-muted">план {{ matrix.totals.total.plan|floatformat:"-2" }}</div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
-        <div class="card-footer small text-muted">Красный — факт ниже плана более чем на 1 час; зелёный — факт выше плана более чем на 1 час.</div>
+        {% if not matrix.has_data %}
+            <div class="card-body text-center text-muted">Данных о нагрузке за выбранный год пока нет.</div>
+        {% endif %}
+        <div class="card-footer small text-muted">
+            В ячейке — факт, под ним — план. Итоги <span class="badge bg-danger">красные</span>, если факт ниже плана более чем на {{ tolerance|floatformat:"-2" }} ч (недовыполнение), и <span class="badge bg-success">зелёные</span>, если план выполнен или перевыполнен.
+            Нажмите на число, чтобы увидеть дисциплины, преподавателей и причины.
+        </div>
     </div>
 
     <div class="card shadow-sm">
         <div class="card-header">Добавить корректировку</div>
         <div class="card-body">
-            {% if disciplines %}
+            {% if not teacher %}
+                <p class="text-muted mb-0">Выберите преподавателя в списке выше, чтобы добавить корректировку (внеплановую работу или причину расхождения).</p>
+            {% elif disciplines %}
                 <form method="post" class="row g-3">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="add_adjustment">
@@ -100,12 +128,12 @@
                     <div class="col-md-2">
                         <label for="month" class="form-label">Месяц</label>
                         <select id="month" name="month" class="form-select" required>
-                            {% for month in months %}<option value="{{ month.number }}">{{ month.name }}</option>{% endfor %}
+                            {% for number, name in month_choices %}<option value="{{ number }}">{{ name }}</option>{% endfor %}
                         </select>
                     </div>
                     <div class="col-md-2">
-                        <label for="hours_delta" class="form-label">Часы (+/−)</label>
-                        <input id="hours_delta" name="hours_delta" type="number" step="0.01" class="form-control" required>
+                        <label for="hours_delta" class="form-label">Часы</label>
+                        <input id="hours_delta" name="hours_delta" type="number" step="any" min="0.01" class="form-control" placeholder="Например, 1.5" required>
                     </div>
                     <div class="col-md-2 d-flex align-items-end">
                         <div class="form-check mb-2">
@@ -126,29 +154,104 @@
     </div>
 </div>
 
-{% for month in months %}
-    {% for row in month.rows %}
-        {% if row.adjustments %}
-            <div class="modal fade" id="reasons-{{ month.number }}-{{ row.kind }}" tabindex="-1" aria-labelledby="reasons-title-{{ month.number }}-{{ row.kind }}" aria-hidden="true">
-                <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h2 class="modal-title fs-5" id="reasons-title-{{ month.number }}-{{ row.kind }}">Причины корректировок: {{ month.name }}, {{ row.kind_display }}</h2>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
-                        </div>
-                        <div class="modal-body">
-                            {% for adjustment in row.adjustments %}
-                                <div class="border-bottom pb-2 mb-2">
-                                    <div class="fw-semibold">{{ adjustment.discipline.name }} · {{ adjustment.hours_delta|floatformat:2 }} ч</div>
-                                    <div>{{ adjustment.reason }}</div>
-                                    {% if adjustment.planned %}<span class="badge text-bg-info">Плановая</span>{% else %}<span class="badge text-bg-secondary">Внеплановая</span>{% endif %}
-                                </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
+<div class="modal fade" id="reportDetailModal" tabindex="-1" aria-labelledby="reportDetailTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="reportDetailTitle"></h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
             </div>
-        {% endif %}
-    {% endfor %}
-{% endfor %}
+            <div class="modal-body" id="reportDetailBody"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ details|json_script:"report-details" }}
+<script>
+(function () {
+    var data = JSON.parse(document.getElementById('report-details').textContent);
+    var tolerance = Number(data.tolerance);
+    var fmt = new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 2});
+
+    function el(tag, text, cls) {
+        var node = document.createElement(tag);
+        if (text !== undefined && text !== null) { node.textContent = text; }
+        if (cls) { node.className = cls; }
+        return node;
+    }
+
+    // Свести подробные строки к строкам «преподаватель · дисциплина · вид» за выбранный месяц и вид работы.
+    // month = 0 — весь год, kind = 'all' — все виды работ.
+    function collect(month, kind) {
+        var map = {};
+        data.rows.forEach(function (row) {
+            if (month !== 0 && row.m !== month) { return; }
+            if (kind !== 'all' && row.k !== kind) { return; }
+            var key = row.t + '|' + row.d + '|' + row.k;
+            var item = map[key];
+            if (!item) {
+                item = map[key] = {teacher: row.tn, discipline: row.dn, kind: row.kn, plan: 0, fact: 0, reasons: []};
+            }
+            item.plan += Number(row.p);
+            item.fact += Number(row.f);
+            row.r.forEach(function (reason) { item.reasons.push(reason); });
+        });
+        return Object.keys(map).map(function (key) {
+            var item = map[key];
+            item.delta = item.fact - item.plan;
+            return item;
+        }).sort(function (a, b) { return a.delta - b.delta; });
+    }
+
+    function render(title, month, kind) {
+        var rows = collect(month, kind);
+        var body = document.getElementById('reportDetailBody');
+        document.getElementById('reportDetailTitle').textContent = title;
+        body.textContent = '';
+        if (!rows.length) {
+            body.appendChild(el('p', 'Нет данных.', 'text-muted mb-0'));
+            return;
+        }
+        var table = el('table', null, 'table table-sm align-middle mb-0');
+        var headRow = table.createTHead().insertRow();
+        var columns = ['Дисциплина', 'Вид работы'];
+        if (data.showTeacher) { columns.splice(1, 0, 'Преподаватель'); }
+        columns = columns.concat(['План, ч', 'Факт, ч', 'Откл., ч', 'Причины']);
+        columns.forEach(function (name) { headRow.appendChild(el('th', name)); });
+        var tbody = table.createTBody();
+        rows.forEach(function (item) {
+            var tr = tbody.insertRow();
+            tr.appendChild(el('td', item.discipline));
+            if (data.showTeacher) { tr.appendChild(el('td', item.teacher)); }
+            tr.appendChild(el('td', item.kind));
+            tr.appendChild(el('td', fmt.format(item.plan), 'text-end'));
+            tr.appendChild(el('td', fmt.format(item.fact), 'text-end'));
+            var deltaClass = item.delta < -tolerance ? 'text-danger' : (item.delta > tolerance ? 'text-success' : '');
+            tr.appendChild(el('td', (item.delta > 0 ? '+' : '') + fmt.format(item.delta), 'text-end fw-semibold ' + deltaClass));
+            var reasonCell = tr.insertCell();
+            if (!item.reasons.length) {
+                reasonCell.appendChild(el('span', '—', 'text-muted'));
+            }
+            item.reasons.forEach(function (reason) {
+                var line = el('div', null, 'small');
+                var hours = Number(reason.h);
+                line.appendChild(el('span', (hours > 0 ? '+' : '') + fmt.format(hours) + ' ч · ', 'fw-semibold'));
+                line.appendChild(document.createTextNode(reason.text + ' '));
+                line.appendChild(el('span', reason.planned ? 'плановая' : 'внеплановая', 'badge text-bg-secondary'));
+                reasonCell.appendChild(line);
+            });
+        });
+        body.appendChild(table);
+    }
+
+    document.addEventListener('click', function (event) {
+        var button = event.target.closest('.report-detail');
+        if (!button) { return; }
+        render(button.dataset.title, Number(button.dataset.month), button.dataset.kind);
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('reportDetailModal')).show();
+    });
+})();
+</script>
 {% endblock %}

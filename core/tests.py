@@ -2,6 +2,7 @@
 Тесты расчётов и формул нагрузки.
 """
 
+from datetime import date
 from django.test import TestCase
 from django.contrib.auth.models import User, Group as AuthGroup
 from decimal import Decimal
@@ -9,7 +10,11 @@ from .models import (
     Specialty, Group, Curriculum, Discipline, Department, CalcSettings,
     PositionRule, Teacher, LoadItem, Adjustment, JournalEntry
 )
-from .calculations import calc_department_load, teacher_total, check_teacher, report_for_teacher
+from .calculations import (
+    calc_department_load, recalculate_department, teacher_total, check_teacher,
+    report_for_teacher, report_matrix, teacher_workload
+)
+from .views import check_teacher_status
 
 
 class CalcDepartmentLoadTestCase(TestCase):
@@ -212,11 +217,47 @@ class CalcDepartmentLoadTestCase(TestCase):
 
         load_items = calc_department_load(discipline, self.settings)
 
-        # Лекции + экзамен + консультация
-        # 15 + (30 × 0.35) + 2 = 24.5
+        # Лекции + экзамен + консультация: 15 + (30 × 0.35) + 2 = 27.5
         total_hours = sum(Decimal(str(item['hours'])) for item in load_items)
-        expected = Decimal('24.5')
+        expected = Decimal('27.5')
         self.assertAlmostEqual(float(total_hours), float(expected), places=2)
+
+    def test_recalculation_preserves_exam_hours_and_assignment(self):
+        discipline = Discipline.objects.create(
+            curriculum=self.curriculum,
+            department=self.department,
+            name='Экзаменационная дисциплина',
+            semester=1,
+            control_form='exam'
+        )
+        discipline.groups.add(self.group1, self.group2)
+        user = User.objects.create_user(username='assigned_teacher', password='pass')
+        teacher = Teacher.objects.create(
+            user=user,
+            full_name='Назначенный преподаватель',
+            department=self.department
+        )
+        existing = LoadItem.objects.create(
+            discipline=discipline,
+            kind='exam',
+            group=self.group1,
+            hours=Decimal('1'),
+            teacher=teacher
+        )
+
+        recalculate_department(self.department, self.settings)
+
+        existing.refresh_from_db()
+        self.assertEqual(existing.hours, Decimal('10.40'))
+        self.assertEqual(existing.teacher, teacher)
+        self.assertEqual(
+            LoadItem.objects.filter(discipline=discipline, kind='exam', group=self.group1).count(),
+            1
+        )
+        self.assertEqual(
+            LoadItem.objects.get(discipline=discipline, kind='exam', group=self.group2).hours,
+            Decimal('10.05')
+        )
 
 
 class TeacherCheckTestCase(TestCase):
@@ -309,6 +350,11 @@ class TeacherCheckTestCase(TestCase):
         total = teacher_total(self.teacher)
         self.assertEqual(total, Decimal('50'))
 
+    def test_check_teacher_with_lecture_capability(self):
+        warnings = check_teacher(self.teacher)
+
+        self.assertTrue(any('Лекций меньше нормы' in warning for warning in warnings))
+
     def test_check_teacher_below_minimum(self):
         """Тест предупреждения ниже минимума."""
         # Добавить только 100 часов (ниже минимума 840)
@@ -355,6 +401,24 @@ class TeacherCheckTestCase(TestCase):
 
         self.assertEqual(self.teacher.effective_min_hours, 500)
         self.assertEqual(self.teacher.effective_max_hours, 600)
+
+    def test_multiple_warnings_are_warning_not_critical(self):
+        status, warnings = check_teacher_status(self.teacher)
+
+        self.assertEqual(status, 'warning')
+        self.assertGreater(len(warnings), 1)
+
+    def test_above_maximum_is_critical(self):
+        LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='pract',
+            hours=Decimal('950'),
+            teacher=self.teacher
+        )
+
+        status, _ = check_teacher_status(self.teacher)
+
+        self.assertEqual(status, 'critical')
 
 
 class CalcSettingsTestCase(TestCase):
@@ -428,6 +492,15 @@ class ReportTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.teacher.full_name)
+
+    def test_home_redirects_teacher_to_workload_without_admin_link(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get('/')
+
+        self.assertRedirects(response, '/workload/', fetch_redirect_response=False)
+        response = self.client.get('/workload/')
+        self.assertNotContains(response, 'href="/admin/"')
 
     def test_teacher_workload_export_is_valid_xlsx(self):
         from io import BytesIO
@@ -558,3 +631,923 @@ class ReportTestCase(TestCase):
         report = report_for_teacher(self.teacher, year)
 
         self.assertEqual(report['months'][1]['lec']['fact'], Decimal('5'))
+
+    def test_report_plan_is_allocated_to_semester_months(self):
+        report = report_for_teacher(self.teacher, 2026)
+
+        self.assertEqual(report['months'][9]['lec']['plan'], Decimal('18'))
+        self.assertEqual(report['months'][1]['lec']['plan'], Decimal('18'))
+        self.assertEqual(report['months'][2]['lec']['plan'], Decimal('0'))
+        self.assertEqual(report['months'][7]['lec']['plan'], Decimal('0'))
+
+    def test_journal_accepts_only_load_assigned_to_teacher(self):
+        from datetime import date
+
+        unassigned_item = LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='pract',
+            hours=Decimal('10')
+        )
+        self.client.force_login(self.user)
+        payload = {
+            'action': 'add_entry',
+            'date': date.today().isoformat(),
+            'hours': '2',
+            'topic': 'Проверка назначения',
+        }
+
+        response = self.client.post('/journal/', {
+            **payload,
+            'load_item_id': unassigned_item.pk,
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(JournalEntry.objects.filter(load_item=unassigned_item).exists())
+
+        response = self.client.post('/journal/', {
+            **payload,
+            'load_item_id': self.load_item.pk,
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(JournalEntry.objects.filter(load_item=self.load_item).exists())
+
+
+class ReportMatrixTestCase(TestCase):
+    """Матрица отчёта «Выполнение нагрузки»: месяц × виды работ."""
+
+    def setUp(self):
+        self.teacher_group, _ = AuthGroup.objects.get_or_create(name='teacher')
+        self.head_group, _ = AuthGroup.objects.get_or_create(name='head')
+        self.department = Department.objects.create(name='Кафедра матрицы')
+
+        self.head_user = User.objects.create_user(username='matrix_head', password='pass')
+        self.head_user.groups.add(self.head_group)
+        self.head = Teacher.objects.create(
+            user=self.head_user, full_name='Заведующий матрицы', department=self.department
+        )
+        self.user = User.objects.create_user(username='matrix_teacher', password='pass')
+        self.user.groups.add(self.teacher_group)
+        self.teacher = Teacher.objects.create(
+            user=self.user, full_name='Иванов Иван', department=self.department
+        )
+
+        specialty = Specialty.objects.create(code='99.02.02', name='Матрица', abbr='М')
+        curriculum = Curriculum.objects.create(
+            specialty=specialty, admission_year=2025, study_form='full_time'
+        )
+        self.discipline = Discipline.objects.create(
+            curriculum=curriculum, department=self.department,
+            name='Алгебра', semester=1, control_form='exam'
+        )
+        self.other_discipline = Discipline.objects.create(
+            curriculum=curriculum, department=self.department,
+            name='Геометрия', semester=1, control_form='exam'
+        )
+        # Осенний семестр: план делится на 5 месяцев (сентябрь–январь).
+        self.lec = LoadItem.objects.create(
+            discipline=self.discipline, kind='lec', hours=Decimal('90'), teacher=self.teacher
+        )
+        self.head_lec = LoadItem.objects.create(
+            discipline=self.other_discipline, kind='lec', hours=Decimal('45'), teacher=self.head
+        )
+
+    def add_fact(self, year=2026):
+        """Сентябрь: проведено 10 ч из 18. Октябрь: замена коллеги на 30 ч сверх плана."""
+        JournalEntry.objects.create(
+            teacher=self.teacher, load_item=self.lec,
+            date=date(year, 9, 10), hours=Decimal('10'), topic='Тема'
+        )
+        Adjustment.objects.create(
+            teacher=self.teacher, discipline=self.discipline, kind='lec',
+            month=10, year=year, hours_delta=Decimal('30'),
+            reason='Замена коллеги', planned=False
+        )
+
+    def test_matrix_sums_plan_and_fact_and_marks_totals(self):
+        self.add_fact()
+
+        matrix = report_matrix([self.teacher], 2026)
+
+        self.assertEqual(matrix['kinds'][0], ('lec', 'Лекция'))
+        september, october = matrix['rows'][8], matrix['rows'][9]
+        self.assertEqual(september['cells'][0]['plan'], Decimal('18'))
+        self.assertEqual(september['cells'][0]['fact'], Decimal('10'))
+        self.assertEqual(september['total']['css'], 'table-danger')
+        self.assertEqual(october['total']['fact'], Decimal('30'))
+        self.assertEqual(october['total']['css'], 'table-success')
+        self.assertEqual(matrix['rows'][6]['total']['css'], '')  # июль: плана нет
+        self.assertFalse(matrix['rows'][6]['total']['has_data'])
+        self.assertEqual(matrix['totals']['cells'][0]['plan'], Decimal('90'))
+        self.assertEqual(matrix['totals']['total']['plan'], Decimal('90'))
+        self.assertEqual(matrix['totals']['total']['fact'], Decimal('40'))
+        self.assertTrue(matrix['has_data'])
+
+    def test_cells_by_kind_are_not_colored(self):
+        self.add_fact()
+
+        matrix = report_matrix([self.teacher], 2026)
+
+        self.assertTrue(all(cell['css'] == '' for row in matrix['rows'] for cell in row['cells']))
+
+    def test_matrix_ignores_other_years(self):
+        self.add_fact(year=2025)
+
+        matrix = report_matrix([self.teacher], 2026)
+
+        self.assertEqual(matrix['totals']['total']['fact'], Decimal('0'))
+        self.assertEqual(matrix['adjustments'], [])
+
+    def test_department_matrix_sums_all_teachers(self):
+        matrix = report_matrix([self.teacher, self.head], 2026)
+
+        self.assertEqual(matrix['totals']['total']['plan'], Decimal('135'))
+        self.assertEqual(matrix['rows'][8]['cells'][0]['plan'], Decimal('27'))
+        names = {row['tn'] for row in matrix['details']}
+        self.assertEqual(names, {'Иванов Иван', 'Заведующий матрицы'})
+
+    def test_details_contain_discipline_teacher_and_reason(self):
+        self.add_fact()
+
+        matrix = report_matrix([self.teacher], 2026)
+
+        october = [
+            row for row in matrix['details']
+            if row['m'] == 10 and row['k'] == 'lec' and row['d'] == self.discipline.pk
+        ]
+        self.assertEqual(len(october), 1)
+        self.assertEqual(october[0]['tn'], 'Иванов Иван')
+        self.assertEqual(october[0]['dn'], 'Алгебра')
+        self.assertEqual(october[0]['r'], [{'h': '30.00', 'text': 'Замена коллеги', 'planned': False}])
+        self.assertEqual(matrix['adjustments'][0]['reason'], 'Замена коллеги')
+
+    def test_head_sees_whole_department_by_default(self):
+        self.client.force_login(self.head_user)
+
+        response = self.client.get('/report/', {'year': 2026})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Вся кафедра')
+        self.assertEqual(response.context['matrix']['totals']['total']['plan'], Decimal('135'))
+        self.assertTrue(response.context['details']['showTeacher'])
+
+    def test_head_can_pick_single_teacher(self):
+        self.client.force_login(self.head_user)
+
+        response = self.client.get('/report/', {'year': 2026, 'teacher_id': self.teacher.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Иванов Иван')
+        self.assertEqual(response.context['matrix']['totals']['total']['plan'], Decimal('90'))
+        self.assertFalse(response.context['details']['showTeacher'])
+
+    def test_teacher_sees_only_own_matrix(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get('/report/', {'year': 2026, 'teacher_id': self.head.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['matrix']['totals']['total']['plan'], Decimal('90'))
+
+    def test_head_cannot_add_adjustment_for_whole_department(self):
+        self.client.force_login(self.head_user)
+
+        response = self.client.post('/report/', {
+            'action': 'add_adjustment', 'year': 2026,
+            'discipline_id': self.discipline.pk, 'kind': 'lec', 'month': 9,
+            'hours_delta': '2', 'reason': 'Причина',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Adjustment.objects.exists())
+
+    def test_report_export_contains_matrix_sheets(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        self.add_fact()
+        self.client.force_login(self.user)
+
+        response = self.client.get('/export/report/', {'year': 2026})
+
+        self.assertEqual(response.status_code, 200)
+        workbook = load_workbook(BytesIO(response.content))
+        self.assertEqual(workbook.sheetnames, ['Факт', 'План', 'Отклонение', 'Корректировки'])
+        plan = workbook['План']
+        self.assertEqual(plan['A1'].value, 'Месяц')
+        self.assertEqual(plan['B1'].value, 'Лекция')
+        self.assertEqual(plan.cell(row=10, column=1).value, 'Сентябрь')
+        self.assertEqual(plan.cell(row=10, column=2).value, 18)
+        self.assertEqual(plan.cell(row=14, column=1).value, 'Итого за год')
+        self.assertEqual(plan.cell(row=14, column=2).value, 90)
+        self.assertEqual(workbook['Факт'].cell(row=14, column=2).value, 40)
+        self.assertEqual(workbook['Корректировки']['G2'].value, 'Замена коллеги')
+
+    def test_head_export_covers_whole_department(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        self.client.force_login(self.head_user)
+
+        response = self.client.get('/export/report/', {'year': 2026})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('department_report_2026.xlsx', response['Content-Disposition'])
+        workbook = load_workbook(BytesIO(response.content))
+        self.assertEqual(workbook['План'].cell(row=14, column=2).value, 135)
+
+
+class DistributionViewTestCase(TestCase):
+    def setUp(self):
+        head_group, _ = AuthGroup.objects.get_or_create(name='head')
+        self.user = User.objects.create_user(username='department_head', password='pass')
+        self.user.groups.add(head_group)
+        self.department = Department.objects.create(name='Кафедра распределения')
+        Teacher.objects.create(
+            user=self.user,
+            full_name='Заведующий кафедрой',
+            department=self.department
+        )
+        self.target_user = User.objects.create_user(username='target_teacher', password='pass')
+        self.target_teacher = Teacher.objects.create(
+            user=self.target_user,
+            full_name='Преподаватель кафедры',
+            department=self.department
+        )
+        specialty = Specialty.objects.create(code='99.02.01', name='Тест', abbr='Т')
+        curriculum = Curriculum.objects.create(
+            specialty=specialty,
+            admission_year=2025,
+            study_form='full_time'
+        )
+        self.discipline = Discipline.objects.create(
+            curriculum=curriculum,
+            department=self.department,
+            name='Дисциплина кафедры',
+            semester=1
+        )
+        self.load_item = LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='pract',
+            hours=Decimal('12')
+        )
+        self.client.force_login(self.user)
+
+    def test_head_cannot_assign_load_from_another_department(self):
+        other_department = Department.objects.create(name='Чужая кафедра')
+        other_discipline = Discipline.objects.create(
+            curriculum=self.discipline.curriculum,
+            department=other_department,
+            name='Чужая дисциплина',
+            semester=1
+        )
+        foreign_item = LoadItem.objects.create(
+            discipline=other_discipline,
+            kind='pract',
+            hours=Decimal('8')
+        )
+
+        response = self.client.post('/distribution/', {
+            'load_item_id': foreign_item.pk,
+            'teacher_id': self.target_teacher.pk,
+        })
+
+        self.assertEqual(response.status_code, 403)
+        foreign_item.refresh_from_db()
+        self.assertIsNone(foreign_item.teacher)
+
+    def test_head_cannot_assign_teacher_from_another_department(self):
+        other_department = Department.objects.create(name='Другая кафедра')
+        other_user = User.objects.create_user(username='foreign_teacher', password='pass')
+        foreign_teacher = Teacher.objects.create(
+            user=other_user,
+            full_name='Чужой преподаватель',
+            department=other_department
+        )
+
+        response = self.client.post('/distribution/', {
+            'load_item_id': self.load_item.pk,
+            'teacher_id': foreign_teacher.pk,
+        })
+
+        self.assertEqual(response.status_code, 403)
+        self.load_item.refresh_from_db()
+        self.assertIsNone(self.load_item.teacher)
+
+    def test_htmx_assignment_returns_updated_teacher_panel(self):
+        LoadItem.objects.create(
+            discipline=self.discipline,
+            kind='lec',
+            hours=Decimal('5'),
+            teacher=self.target_teacher
+        )
+
+        response = self.client.post(
+            '/distribution/',
+            {'load_item_id': self.load_item.pk, 'teacher_id': self.target_teacher.pk},
+            HTTP_HX_REQUEST='true'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'core/_teacher_panel.html')
+        self.assertContains(response, '17')
+        self.assertNotIn('_messages', self.client.session)
+
+    def test_teacher_panel_formats_assigned_hours_to_cents(self):
+        for hours in (Decimal('0.10'), Decimal('0.20')):
+            LoadItem.objects.create(
+                discipline=self.discipline,
+                kind='exam',
+                hours=hours,
+                teacher=self.target_teacher,
+            )
+
+        response = self.client.get('/distribution/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '0,3')
+        self.assertContains(response, 'Меньше минимума: 0.3 ч из 840 ч')
+        self.assertNotContains(response, '0.300000000000000')
+
+    def test_distribution_shows_lab_subgroup_numbers(self):
+        group = Group.objects.create(
+            name='26ПМ1д',
+            specialty=self.discipline.curriculum.specialty,
+            course=1,
+            students_count=20,
+            subgroups_count=2,
+        )
+        self.discipline.groups.add(group)
+        for subgroup_no in (1, 2):
+            LoadItem.objects.create(
+                discipline=self.discipline,
+                kind='lab',
+                group=group,
+                subgroup_no=subgroup_no,
+                hours=Decimal('56'),
+            )
+
+        response = self.client.get('/distribution/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '26ПМ1д-1')
+        self.assertContains(response, '26ПМ1д-2')
+
+    def test_distribution_groups_by_specialty_and_marks_specialization(self):
+        # Добавляем специализацию целевому преподавателю
+        self.target_teacher.specialization.add(self.discipline)
+
+        # Создаем вторую специальность и дисциплину на той же кафедре
+        spec2 = Specialty.objects.create(code='88.01.01', name='Вторая Спец', abbr='ВС')
+        cur2 = Curriculum.objects.create(specialty=spec2, admission_year=2025, study_form='full_time')
+        disc2 = Discipline.objects.create(curriculum=cur2, department=self.department, name='Вторая дисциплина', semester=2)
+        LoadItem.objects.create(discipline=disc2, kind='lec', hours=Decimal('20'))
+
+        response = self.client.get('/distribution/')
+        self.assertEqual(response.status_code, 200)
+
+        # Проверяем наличие группировки по обеим специальностям без технических кодов
+        self.assertContains(response, 'Тест (Т)')
+        self.assertContains(response, 'Вторая Спец (ВС)')
+        self.assertNotContains(response, '99.02.01')
+        self.assertNotContains(response, '88.01.01')
+
+        # Проверяем наличие галочки специализации для подходящей дисциплины
+        self.assertContains(response, f'✓ {self.target_teacher.full_name}')
+
+
+class TeachersPageTestCase(TestCase):
+    """Страница «Преподаватели» зав. кафедрой: права и CRUD."""
+
+    def setUp(self):
+        self.teacher_group, _ = AuthGroup.objects.get_or_create(name='teacher')
+        self.head_group, _ = AuthGroup.objects.get_or_create(name='head')
+        self.dean_group, _ = AuthGroup.objects.get_or_create(name='deputy_dean')
+        self.department = Department.objects.create(name='Кафедра А')
+        self.other_department = Department.objects.create(name='Кафедра Б')
+        self.position = PositionRule.objects.create(
+            position='Доцент', min_hours=840, max_hours=900, min_lecture_hours=100, can_lecture=True
+        )
+
+        self.head_user = User.objects.create_user(username='t2_head', password='pass')
+        self.head_user.groups.add(self.head_group)
+        self.head = Teacher.objects.create(
+            user=self.head_user, full_name='Зав А', department=self.department, position=self.position
+        )
+        self.department.head = self.head
+        self.department.save()
+
+        self.own_user = User.objects.create_user(username='t2_own', password='pass')
+        self.own_user.groups.add(self.teacher_group)
+        self.own = Teacher.objects.create(
+            user=self.own_user, full_name='Свой', department=self.department, position=self.position
+        )
+        self.foreign_user = User.objects.create_user(username='t2_foreign', password='pass')
+        self.foreign_user.groups.add(self.teacher_group)
+        self.foreign = Teacher.objects.create(
+            user=self.foreign_user, full_name='Чужой', department=self.other_department, position=self.position
+        )
+        self.url = '/teachers/'
+
+    def payload(self, **extra):
+        data = {
+            'action': 'save', 'full_name': 'Новый Преподаватель', 'position': self.position.pk,
+            'degree': 'none', 'rank': '', 'rate': '1.00',
+            'username': 't2_new', 'password': 'Str0ng-pass-91',
+        }
+        data.update(extra)
+        return data
+
+    def test_only_head_has_access(self):
+        self.client.login(username='t2_own', password='pass')
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+        dean = User.objects.create_user(username='t2_dean', password='pass')
+        dean.groups.add(self.dean_group)
+        self.client.login(username='t2_dean', password='pass')
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_list_shows_only_own_department(self):
+        self.client.login(username='t2_head', password='pass')
+        response = self.client.get(self.url)
+        self.assertContains(response, 'Свой')
+        self.assertNotContains(response, 'Чужой')
+
+    def test_specialization_choices_are_deduplicated_searchable_and_select_all_matching_records(self):
+        specialty = Specialty.objects.create(code='ДУБ', name='Специальность дублей', abbr='ДУБ')
+        disciplines = []
+        for admission_year in (2024, 2025):
+            curriculum = Curriculum.objects.create(
+                specialty=specialty, admission_year=admission_year, study_form='full_time'
+            )
+            disciplines.append(Discipline.objects.create(
+                curriculum=curriculum,
+                department=self.department,
+                name='Повторная дисциплина',
+                semester=1,
+            ))
+
+        self.client.login(username='t2_head', password='pass')
+        response = self.client.get(self.url, {'edit': self.own.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="specialization-search"')
+        self.assertContains(response, '#id_specialization input[name="specialization"]')
+        self.assertContains(response, "document.createElement('strong')")
+        self.assertContains(response, 'renderHighlight(choice.highlightContainer, choice.text, query)')
+        self.assertEqual(response.content.decode().count('Повторная дисциплина (ДУБ)'), 1)
+
+        response = self.client.post(self.url, self.payload(
+            teacher_id=self.own.pk,
+            password='',
+            username='ignored',
+            specialization=str(disciplines[0].pk),
+        ))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertQuerySetEqual(
+            self.own.specialization.filter(pk__in=[discipline.pk for discipline in disciplines]).order_by('pk'),
+            sorted(disciplines, key=lambda discipline: discipline.pk),
+        )
+
+    def test_create_makes_user_group_and_teacher_in_own_department(self):
+        self.client.login(username='t2_head', password='pass')
+        response = self.client.post(self.url, self.payload())
+        self.assertEqual(response.status_code, 302)
+        teacher = Teacher.objects.get(full_name='Новый Преподаватель')
+        self.assertEqual(teacher.department, self.department)
+        self.assertTrue(teacher.user.groups.filter(name='teacher').exists())
+        self.assertTrue(teacher.user.check_password('Str0ng-pass-91'))
+
+    def test_create_requires_unique_login_and_password(self):
+        self.client.login(username='t2_head', password='pass')
+        self.client.post(self.url, self.payload(username='t2_own'))
+        self.assertFalse(Teacher.objects.filter(full_name='Новый Преподаватель').exists())
+        self.client.post(self.url, self.payload(password=''))
+        self.assertFalse(Teacher.objects.filter(full_name='Новый Преподаватель').exists())
+
+    def test_edit_updates_fields_and_keeps_password_when_blank(self):
+        self.client.login(username='t2_head', password='pass')
+        self.client.post(self.url, self.payload(
+            teacher_id=self.own.pk, full_name='Свой Изменённый', rate='0.50', password='', username='ignored'
+        ))
+        self.own.refresh_from_db()
+        self.own_user.refresh_from_db()
+        self.assertEqual(self.own.full_name, 'Свой Изменённый')
+        self.assertEqual(self.own.rate, Decimal('0.50'))
+        self.assertEqual(self.own_user.username, 't2_own')
+        self.assertTrue(self.own_user.check_password('pass'))
+
+    def test_cannot_edit_or_delete_foreign_teacher(self):
+        self.client.login(username='t2_head', password='pass')
+        self.assertEqual(self.client.get(self.url, {'edit': self.foreign.pk}).status_code, 404)
+        self.assertEqual(self.client.post(self.url, self.payload(teacher_id=self.foreign.pk)).status_code, 404)
+        self.assertEqual(self.client.post(self.url, {'action': 'delete', 'teacher_id': self.foreign.pk}).status_code, 404)
+        self.assertTrue(Teacher.objects.filter(pk=self.foreign.pk).exists())
+
+    def test_delete_removes_teacher_and_user_but_not_head(self):
+        self.client.login(username='t2_head', password='pass')
+        self.client.post(self.url, {'action': 'delete', 'teacher_id': self.own.pk})
+        self.assertFalse(Teacher.objects.filter(pk=self.own.pk).exists())
+        self.assertFalse(User.objects.filter(username='t2_own').exists())
+        self.client.post(self.url, {'action': 'delete', 'teacher_id': self.head.pk})
+        self.assertTrue(Teacher.objects.filter(pk=self.head.pk).exists())
+
+    def test_delete_via_get_is_not_performed(self):
+        self.client.login(username='t2_head', password='pass')
+        self.client.get(self.url, {'action': 'delete', 'teacher_id': self.own.pk})
+        self.assertTrue(Teacher.objects.filter(pk=self.own.pk).exists())
+
+
+class DepartmentRecalculateViewTestCase(TestCase):
+    """Тесты пересчёта нагрузки: зав. кафедрой пересчитывает только свою кафедру."""
+
+    def setUp(self):
+        self.settings = CalcSettings.get()
+        self.group_head, _ = AuthGroup.objects.get_or_create(name='head')
+        self.group_deputy, _ = AuthGroup.objects.get_or_create(name='deputy_dean')
+
+        self.dept_a = Department.objects.create(name='Кафедра А')
+        self.dept_b = Department.objects.create(name='Кафедра Б')
+
+        self.spec = Specialty.objects.create(code='01.01.01', name='Спец', abbr='СП')
+        self.curriculum = Curriculum.objects.create(specialty=self.spec, admission_year=2026, study_form='full_time')
+        self.group = Group.objects.create(name='Гр1', specialty=self.spec, course=1, students_count=20, subgroups_count=2)
+
+        self.disc_a = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.dept_a, name='Дисциплина А',
+            semester=1, control_form='exam', hours_lec=Decimal('30')
+        )
+        self.disc_a.groups.add(self.group)
+
+        self.disc_b = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.dept_b, name='Дисциплина Б',
+            semester=1, control_form='exam', hours_lec=Decimal('40')
+        )
+        self.disc_b.groups.add(self.group)
+
+        self.user_head_a = User.objects.create_user('head_a', password='pass')
+        self.user_head_a.groups.add(self.group_head)
+        self.teacher_head_a = Teacher.objects.create(
+            user=self.user_head_a, full_name='Зав А', department=self.dept_a, rate=Decimal('1.0')
+        )
+
+        self.user_deputy = User.objects.create_user('deputy', password='pass')
+        self.user_deputy.groups.add(self.group_deputy)
+
+    def test_head_recalculates_only_own_department_in_settings(self):
+        self.client.login(username='head_a', password='pass')
+        # Запрос пересчёта (даже если отправлено recalculate_all)
+        response = self.client.post('/settings/', {'action': 'recalculate_all'})
+        self.assertEqual(response.status_code, 302)
+        # Нагрузка кафедры А создана
+        self.assertTrue(LoadItem.objects.filter(discipline__department=self.dept_a).exists())
+        # Нагрузка кафедры Б НЕ создана
+        self.assertFalse(LoadItem.objects.filter(discipline__department=self.dept_b).exists())
+
+    def test_head_recalculates_on_distribution_page(self):
+        self.client.login(username='head_a', password='pass')
+        response = self.client.post('/distribution/', {'action': 'recalculate'})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(LoadItem.objects.filter(discipline__department=self.dept_a).exists())
+        self.assertFalse(LoadItem.objects.filter(discipline__department=self.dept_b).exists())
+
+    def test_deputy_dean_can_recalculate_specific_department(self):
+        self.client.login(username='deputy', password='pass')
+        response = self.client.post('/settings/', {'action': 'recalculate_department', 'department_id': self.dept_b.id})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(LoadItem.objects.filter(discipline__department=self.dept_a).exists())
+        self.assertTrue(LoadItem.objects.filter(discipline__department=self.dept_b).exists())
+
+
+class JournalValidationTestCase(TestCase):
+    """Тесты валидации записей журнала (задача T6)."""
+
+    def setUp(self):
+        self.group_teacher, _ = AuthGroup.objects.get_or_create(name='teacher')
+        self.dept = Department.objects.create(name='Кафедра Журнала')
+        self.spec = Specialty.objects.create(code='02.02.02', name='СпецЖурнал', abbr='СЖ')
+        self.curriculum = Curriculum.objects.create(specialty=self.spec, admission_year=2026, study_form='full_time')
+        self.group = Group.objects.create(name='Гр-Ж1', specialty=self.spec, course=1, students_count=20, subgroups_count=2)
+        self.discipline = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.dept, name='Дисциплина Журнала',
+            semester=1, control_form='exam', hours_lec=Decimal('30')
+        )
+        self.discipline.groups.add(self.group)
+
+        self.user = User.objects.create_user('teacher_j', password='pass')
+        self.user.groups.add(self.group_teacher)
+        self.teacher = Teacher.objects.create(
+            user=self.user, full_name='Преподаватель Журнала', department=self.dept, rate=Decimal('1.0')
+        )
+        self.load_item = LoadItem.objects.create(
+            discipline=self.discipline, kind='lab', group=self.group, subgroup_no=1,
+            hours=Decimal('20'), teacher=self.teacher
+        )
+
+    def test_journal_rejects_negative_or_zero_hours(self):
+        self.client.login(username='teacher_j', password='pass')
+        payload = {
+            'action': 'add_entry',
+            'load_item_id': self.load_item.id,
+            'date': '2026-10-15',
+            'topic': 'Тема 1',
+        }
+        # Ноль часов
+        resp = self.client.post('/journal/', {**payload, 'hours': '0'})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(JournalEntry.objects.filter(load_item=self.load_item).exists())
+
+        # Отрицательные часы
+        resp = self.client.post('/journal/', {**payload, 'hours': '-2.5'})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(JournalEntry.objects.filter(load_item=self.load_item).exists())
+
+    def test_journal_rejects_invalid_date(self):
+        self.client.login(username='teacher_j', password='pass')
+        resp = self.client.post('/journal/', {
+            'action': 'add_entry',
+            'load_item_id': self.load_item.id,
+            'date': 'not-a-date',
+            'hours': '2',
+            'topic': 'Тема 2',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(JournalEntry.objects.filter(load_item=self.load_item).exists())
+
+    def test_journal_page_renders_group_column(self):
+        self.client.login(username='teacher_j', password='pass')
+        JournalEntry.objects.create(
+            teacher=self.teacher, load_item=self.load_item, date=date(2026, 10, 15),
+            hours=Decimal('2'), topic='Тестовое занятие'
+        )
+        resp = self.client.get('/journal/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Группа / подгруппа')
+        self.assertContains(resp, 'Гр-Ж1-1')
+
+
+class DeputyDeanAdminAccessTestCase(TestCase):
+    """Тесты доступа зам. декана к справочникам в админке (задача T3 Вариант A)."""
+
+    def setUp(self):
+        from django.contrib.contenttypes.models import ContentType
+        from django.contrib.auth.models import Permission
+
+        self.group_deputy, _ = AuthGroup.objects.get_or_create(name='deputy_dean')
+        ref_models = [Specialty, Group, Curriculum, Discipline, Department]
+        for model in ref_models:
+            ct = ContentType.objects.get_for_model(model)
+            perms = Permission.objects.filter(content_type=ct)
+            self.group_deputy.permissions.add(*perms)
+
+        self.user_deputy = User.objects.create_user('deputy_test', password='pass', is_staff=True)
+        self.user_deputy.groups.add(self.group_deputy)
+
+    def test_deputy_dean_has_access_to_directory_admins(self):
+        self.client.login(username='deputy_test', password='pass')
+        urls = [
+            '/admin/core/specialty/',
+            '/admin/core/group/',
+            '/admin/core/curriculum/',
+            '/admin/core/discipline/',
+            '/admin/core/department/',
+        ]
+        for url in urls:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200, f'Ожидался доступ 200 к {url}')
+
+
+class WorkloadPageTestCase(TestCase):
+    """T5: страница нагрузки преподавателя с матрицей и итогами по семестрам."""
+
+    def setUp(self):
+        self.teacher_group, _ = AuthGroup.objects.get_or_create(name='teacher')
+        self.head_group, _ = AuthGroup.objects.get_or_create(name='head')
+        self.specialty = Specialty.objects.create(code='05.01.01', name='ТестСпец', abbr='ТС')
+        self.curriculum = Curriculum.objects.create(
+            specialty=self.specialty, admission_year=2026, study_form='full_time'
+        )
+        self.department = Department.objects.create(name='Кафедра Т5')
+        self.position = PositionRule.objects.create(
+            position='Доцент', min_hours=840, max_hours=900, min_lecture_hours=100, can_lecture=True
+        )
+        self.group1 = Group.objects.create(
+            name='Гр-Т5', specialty=self.specialty, course=1, students_count=20, subgroups_count=2
+        )
+
+        self.user = User.objects.create_user(username='t5_teacher', password='pass')
+        self.user.groups.add(self.teacher_group)
+        self.teacher = Teacher.objects.create(
+            user=self.user, full_name='Тест Т5', department=self.department, position=self.position
+        )
+
+        # Дисциплина осеннего семестра (нечётный)
+        self.disc_fall = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.department,
+            name='Дисц Осень', semester=1, hours_lec=30, control_form='exam'
+        )
+        self.disc_fall.groups.add(self.group1)
+        # Дисциплина весеннего семестра (чётный)
+        self.disc_spring = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.department,
+            name='Дисц Весна', semester=2, hours_pract=20, control_form='credit'
+        )
+        self.disc_spring.groups.add(self.group1)
+
+        # Создаём нагрузку вручную
+        self.item_lec = LoadItem.objects.create(
+            discipline=self.disc_fall, kind='lec', hours=Decimal('30'), teacher=self.teacher
+        )
+        self.item_pract = LoadItem.objects.create(
+            discipline=self.disc_spring, kind='pract', group=self.group1,
+            hours=Decimal('20'), teacher=self.teacher
+        )
+
+    def test_workload_view_returns_200(self):
+        self.client.login(username='t5_teacher', password='pass')
+        response = self.client.get('/workload/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_workload_view_forbidden_for_non_teacher(self):
+        head_user = User.objects.create_user(username='t5_head', password='pass')
+        head_user.groups.add(self.head_group)
+        self.client.login(username='t5_head', password='pass')
+        response = self.client.get('/workload/')
+        self.assertEqual(response.status_code, 403)
+
+    def test_workload_contains_semester_totals(self):
+        self.client.login(username='t5_teacher', password='pass')
+        response = self.client.get('/workload/')
+        self.assertContains(response, 'осенний семестр')
+        self.assertContains(response, 'весенний семестр')
+        self.assertContains(response, 'ИТОГО ЗА ГОД')
+
+    def test_teacher_workload_function_totals(self):
+        """teacher_workload: grand_totals_total совпадает с teacher_total."""
+        wl = teacher_workload(self.teacher)
+        total_from_wl = wl['grand_totals_total']
+        total_from_fn = teacher_total(self.teacher)
+        self.assertEqual(total_from_wl, total_from_fn)
+
+    def test_teacher_workload_fall_spring_split(self):
+        """teacher_workload: осенний итог = 30 ч, весенний = 20 ч."""
+        wl = teacher_workload(self.teacher)
+        self.assertEqual(wl['fall_totals_total'], Decimal('30'))
+        self.assertEqual(wl['spring_totals_total'], Decimal('20'))
+        self.assertEqual(wl['grand_totals_total'], Decimal('50'))
+
+    def test_teacher_workload_rows_count(self):
+        """teacher_workload: по одной строке на дисциплину."""
+        wl = teacher_workload(self.teacher)
+        self.assertEqual(len(wl['rows']), 2)
+
+    def test_workload_contains_discipline_names(self):
+        self.client.login(username='t5_teacher', password='pass')
+        response = self.client.get('/workload/')
+        self.assertContains(response, 'Дисц Осень')
+        self.assertContains(response, 'Дисц Весна')
+
+
+class DeputyDeanUITestCase(TestCase):
+    """Тесты обычного UI для роли заместителя декана (deputy_dean) и ввода часов."""
+
+    def setUp(self):
+        self.group_deputy, _ = AuthGroup.objects.get_or_create(name='deputy_dean')
+        self.group_head, _ = AuthGroup.objects.get_or_create(name='head')
+        self.group_teacher, _ = AuthGroup.objects.get_or_create(name='teacher')
+
+        self.user_deputy = User.objects.create_user('deputy_ui', password='pass')
+        self.user_deputy.groups.add(self.group_deputy)
+
+        self.user_teacher = User.objects.create_user('teacher_ui', password='pass')
+        self.user_teacher.groups.add(self.group_teacher)
+
+        self.dept = Department.objects.create(name='Тестовая кафедра UI')
+        self.spec = Specialty.objects.create(code='09.03.01', name='Информатика', abbr='ИВТ')
+        self.curriculum = Curriculum.objects.create(specialty=self.spec, admission_year=2026, study_form='full_time')
+        self.acad_group = Group.objects.create(name='ИВТ-26-1', specialty=self.spec, course=1, students_count=25, subgroups_count=2)
+        self.discipline = Discipline.objects.create(
+            curriculum=self.curriculum, department=self.dept, name='Алгоритмы', semester=1, control_form='exam', hours_lec=Decimal('34')
+        )
+        self.teacher = Teacher.objects.create(user=self.user_teacher, full_name='Иванов И.И.', department=self.dept, rate=Decimal('1.0'))
+        self.load_item = LoadItem.objects.create(discipline=self.discipline, kind='lec', hours=Decimal('34'), teacher=self.teacher)
+
+    def test_dean_pages_require_deputy_dean(self):
+        urls = [
+            '/dean/',
+            '/dean/specialties/',
+            '/dean/departments/',
+            '/dean/groups/',
+            '/dean/curricula/',
+            '/dean/disciplines/',
+        ]
+        # Преподавателю доступ запрещён
+        self.client.login(username='teacher_ui', password='pass')
+        for url in urls:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 403, f'Ожидался 403 для {url}')
+
+        # Заместителю декана доступ разрешён
+        self.client.login(username='deputy_ui', password='pass')
+        for url in urls:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200, f'Ожидался 200 для {url}')
+
+    def test_dean_home_redirects_to_dean_dashboard(self):
+        self.client.login(username='deputy_ui', password='pass')
+        response = self.client.get('/')
+        self.assertRedirects(response, '/dean/')
+
+    def test_specialty_crud(self):
+        self.client.login(username='deputy_ui', password='pass')
+        # Создание
+        resp = self.client.post('/dean/specialties/', {
+            'action': 'save',
+            'code': '01.03.02',
+            'name': 'Прикладная математика и информатика',
+            'abbr': 'ПМИ',
+        })
+        self.assertEqual(resp.status_code, 302)
+        new_spec = Specialty.objects.filter(code='01.03.02').first()
+        self.assertIsNotNone(new_spec)
+        self.assertEqual(new_spec.abbr, 'ПМИ')
+
+        # Редактирование
+        resp = self.client.post('/dean/specialties/', {
+            'action': 'save',
+            'specialty_id': new_spec.pk,
+            'code': '01.03.02',
+            'name': 'ПМИ (Обновлено)',
+            'abbr': 'ПМИ-2',
+        })
+        self.assertEqual(resp.status_code, 302)
+        new_spec.refresh_from_db()
+        self.assertEqual(new_spec.abbr, 'ПМИ-2')
+
+        # Удаление
+        resp = self.client.post('/dean/specialties/', {
+            'action': 'delete',
+            'specialty_id': new_spec.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Specialty.objects.filter(code='01.03.02').exists())
+
+    def test_department_crud(self):
+        self.client.login(username='deputy_ui', password='pass')
+        # Создание
+        resp = self.client.post('/dean/departments/', {
+            'action': 'save',
+            'name': 'Новая Кафедра',
+        })
+        self.assertEqual(resp.status_code, 302)
+        new_dept = Department.objects.filter(name='Новая Кафедра').first()
+        self.assertIsNotNone(new_dept)
+
+        # Удаление
+        resp = self.client.post('/dean/departments/', {
+            'action': 'delete',
+            'department_id': new_dept.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Department.objects.filter(name='Новая Кафедра').exists())
+
+    def test_deputy_dean_has_access_to_report_and_export(self):
+        self.client.login(username='deputy_ui', password='pass')
+        # Просмотр отчёта
+        resp = self.client.get('/report/')
+        self.assertEqual(resp.status_code, 200)
+
+        # Выгрузка отчёта в Excel
+        resp = self.client.get('/export/report/')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_report_adjustment_accepts_positive_decimal_hours(self):
+        self.client.login(username='teacher_ui', password='pass')
+        year = date.today().year
+
+        # Ввод положительных часов с любым значением (например, 1.5 часа)
+        resp = self.client.post('/report/', {
+            'action': 'add_adjustment',
+            'year': year,
+            'discipline_id': self.discipline.pk,
+            'kind': 'lec',
+            'month': 10,
+            'hours_delta': '1.5',
+            'reason': 'Проведение доп. лекции',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(Adjustment.objects.filter(
+            teacher=self.teacher, discipline=self.discipline, hours_delta=Decimal('1.5')
+        ).exists())
+
+        # Отклонение неположительных часов (0 или отрицательные)
+        resp = self.client.post('/report/', {
+            'action': 'add_adjustment',
+            'year': year,
+            'discipline_id': self.discipline.pk,
+            'kind': 'lec',
+            'month': 10,
+            'hours_delta': '-1.5',
+            'reason': 'Отрицательные часы',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Adjustment.objects.filter(hours_delta=Decimal('-1.5')).exists())
+

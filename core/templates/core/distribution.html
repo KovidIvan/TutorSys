@@ -5,10 +5,17 @@
     <div class="col-md-7">
         <div class="card mb-4">
             <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-                <h4 class="mb-0">📚 Элементы нагрузки кафедры</h4>
-                <div class="d-flex gap-2">
-                    <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'department-load' %}">📥 Нагрузка Excel</a>
-                    <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'teachers' %}">📥 Преподаватели Excel</a>
+                <h4 class="mb-0">Элементы нагрузки{% if user_department %}: {{ user_department.name }}{% endif %}</h4>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <form method="post" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="recalculate">
+                        <button type="submit" class="btn btn-sm btn-outline-warning" title="Пересчитать часы только для этой кафедры" onclick="return confirm('Пересчитать часы элементов нагрузки только вашей кафедры по текущим нормативам?');">
+                            Пересчитать часы кафедры
+                        </button>
+                    </form>
+                    <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'department-load' %}">Нагрузка Excel</a>
+                    <a class="btn btn-sm btn-outline-light" href="{% url 'core:export_excel' 'teachers' %}">Преподаватели Excel</a>
                 </div>
             </div>
             <div class="card-body">
@@ -25,23 +32,28 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for item in load_items %}
-                                    <tr>
-                                        <td><small>{{ item.discipline.name }}</small></td>
-                                        <td><span class="badge bg-info">{{ item.get_kind_display }}</span></td>
-                                        <td><small>{% if item.group %}{{ item.group.name }}{% else %}Поток{% endif %}</small></td>
-                                        <td><strong>{{ item.hours }}</strong></td>
-                                        <td>
-                                            <form method="post" style="display: inline;">
-                                                {% csrf_token %}
-                                                <input type="hidden" name="load_item_id" value="{{ item.id }}">
-                                                <select name="teacher_id" class="form-select form-select-sm" hx-post="{% url 'core:distribution' %}" hx-target="#teacher-panel" hx-swap="innerHTML">
-                                                    <option value="">-</option>
-                                                    {% for t in teachers %}<option value="{{ t.id }}" {% if item.teacher == t %}selected{% endif %}>{{ t.full_name }}</option>{% endfor %}
-                                                </select>
-                                            </form>
-                                        </td>
+                                {% for group in load_item_groups %}
+                                    <tr class="table-primary">
+                                        <th colspan="5">{{ group.specialty.name }} ({{ group.specialty.abbr }})</th>
                                     </tr>
+                                    {% for item in group.items %}
+                                        <tr>
+                                            <td><small>{{ item.discipline.name }}</small></td>
+                                            <td><span class="badge bg-info">{{ item.get_kind_display }}</span></td>
+                                            <td><small>{% if item.group %}{{ item.group.name }}{% if item.subgroup_no %}-{{ item.subgroup_no }}{% endif %}{% else %}Поток{% endif %}</small></td>
+                                            <td><strong>{{ item.hours|floatformat:"-2" }}</strong></td>
+                                            <td>
+                                                <form method="post" style="display: inline;">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="load_item_id" value="{{ item.id }}">
+                                                    <select name="teacher_id" class="form-select form-select-sm" hx-post="{% url 'core:distribution' %}" hx-target="#teacher-panel" hx-swap="innerHTML">
+                                                        <option value="">-</option>
+                                                        {% for candidate in item.candidates %}<option value="{{ candidate.id }}" {% if candidate.is_current %}selected{% endif %}>{{ candidate.name }}</option>{% endfor %}
+                                                    </select>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
                                 {% endfor %}
                             </tbody>
                         </table>

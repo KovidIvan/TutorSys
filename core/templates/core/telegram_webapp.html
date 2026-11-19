@@ -1,0 +1,139 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Telegram Mini App — S.C.A.L.E</title>
+    <link rel="icon" type="image/svg+xml" href="{% static 'core/img/favicon.svg' %}">
+    <link href="{% static 'core/vendor/bootstrap.min.css' %}" rel="stylesheet">
+    <link href="{% static 'core/theme.css' %}?v=7" rel="stylesheet">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body class="login-body">
+    <main class="login-wrap">
+        <div class="login-card">
+            <div class="login-brand-row">
+                <img class="login-brand-logo" src="{% static 'core/img/logo.svg' %}" alt="S.C.A.L.E" width="54" height="54">
+                <div class="logo">S.C.A.L.E</div>
+            </div>
+            <div class="tagline">Telegram Mini App · Учебная нагрузка</div>
+            <div class="rule"></div>
+
+            <!-- Статус автоматического входа через Telegram -->
+            <div id="tg-status-box" class="text-center py-3">
+                <div class="spinner-border text-info mb-3" role="status"></div>
+                <div id="tg-status-text" class="small text-light opacity-75">
+                    Проверка подписи Telegram Mini App...
+                </div>
+            </div>
+
+            <!-- Сообщение об ошибке -->
+            <div id="tg-error-box" class="alert d-none" role="alert"></div>
+            {% if error_msg %}
+                <div class="alert" role="alert">{{ error_msg }}</div>
+            {% endif %}
+
+            <!-- Форма однократной привязки аккаунта S.C.A.L.E к Telegram -->
+            <form id="tg-link-form" method="post" class="d-none">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="link">
+                <input type="hidden" name="init_data" id="id_init_data" value="">
+
+                <p class="small text-center mb-3" style="color: rgba(219, 234, 254, 0.85);">
+                    Привяжите ваш аккаунт <b>S.C.A.L.E</b> к Telegram<span id="tg-greeting"></span>.<br>
+                    При следующих открытиях вход будет выполняться автоматически.
+                </p>
+
+                <div class="mb-3">
+                    <label class="form-label" for="id_username">Логин S.C.A.L.E</label>
+                    <input class="form-control" type="text" name="username" id="id_username" autocomplete="username" placeholder="deputy_dean / head / teacher" required>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label" for="id_password">Пароль</label>
+                    <input class="form-control" type="password" name="password" id="id_password" autocomplete="current-password" placeholder="Пароль" required>
+                </div>
+                <button class="btn btn-login" type="submit">Привязать и войти</button>
+            </form>
+
+            <!-- Кнопка перехода к обычному входу, если открыто вне Telegram -->
+            <div id="tg-browser-fallback" class="text-center mt-3 d-none">
+                <a href="{% url 'login' %}" class="btn btn-scale-out w-100">Перейти к обычной странице входа</a>
+            </div>
+        </div>
+        <div class="login-foot">Учёт и распределение учебной нагрузки</div>
+    </main>
+
+    <script>
+        (function () {
+            const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+            const statusBox = document.getElementById('tg-status-box');
+            const statusText = document.getElementById('tg-status-text');
+            const errorBox = document.getElementById('tg-error-box');
+            const linkForm = document.getElementById('tg-link-form');
+            const initDataInput = document.getElementById('id_init_data');
+            const greetingSpan = document.getElementById('tg-greeting');
+            const fallbackBox = document.getElementById('tg-browser-fallback');
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+            if (tg) {
+                tg.ready();
+                tg.expand();
+                if (tg.setHeaderColor) {
+                    try { tg.setHeaderColor('#050b1a'); } catch (e) {}
+                }
+                if (tg.setBackgroundColor) {
+                    try { tg.setBackgroundColor('#050b1a'); } catch (e) {}
+                }
+            }
+
+            const initData = tg && tg.initData ? tg.initData : '';
+            if (!initData) {
+                statusBox.classList.add('d-none');
+                errorBox.textContent = 'Эта страница предназначена для запуска внутри Telegram Mini App. Откройте бота в Telegram и нажмите кнопку «Открыть S.C.A.L.E».';
+                errorBox.classList.remove('d-none');
+                fallbackBox.classList.remove('d-none');
+                return;
+            }
+
+            initDataInput.value = initData;
+
+            const body = new URLSearchParams();
+            body.append('action', 'auth');
+            body.append('init_data', initData);
+
+            fetch('{% url "core:telegram_webapp" %}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: body.toString()
+            })
+            .then(resp => resp.json())
+            .then(data => {
+                if (data.ok && data.redirect) {
+                    statusText.textContent = 'Вход выполнен! Перенаправление...';
+                    window.location.href = data.redirect;
+                } else if (data.need_link) {
+                    statusBox.classList.add('d-none');
+                    if (data.tg_user && data.tg_user.first_name) {
+                        greetingSpan.textContent = ' (' + data.tg_user.first_name + ')';
+                    }
+                    linkForm.classList.remove('d-none');
+                } else {
+                    statusBox.classList.add('d-none');
+                    errorBox.textContent = data.error || 'Ошибка авторизации через Telegram.';
+                    errorBox.classList.remove('d-none');
+                    fallbackBox.classList.remove('d-none');
+                }
+            })
+            .catch(() => {
+                statusBox.classList.add('d-none');
+                linkForm.classList.remove('d-none');
+            });
+        })();
+    </script>
+</body>
+</html>

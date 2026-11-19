@@ -1,0 +1,104 @@
+{% extends 'core/base.html' %}
+{% block title %}Специальности — Деканат{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item"><a href="{% url 'core:dean_dashboard' %}">Деканат</a></li>
+                <li class="breadcrumb-item active" aria-current="page">Специальности</li>
+            </ol>
+        </nav>
+        <h2 class="h3 mb-0">Специальности факультета</h2>
+    </div>
+    <a href="{% url 'core:dean_dashboard' %}" class="btn btn-outline-secondary btn-sm">← В панель деканата</a>
+</div>
+
+<div class="row">
+    <!-- Список специальностей -->
+    <div class="col-lg-7">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Список специальностей ({{ specialties|length }})</h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Код</th>
+                            <th>Наименование</th>
+                            <th>Аббр.</th>
+                            <th class="text-center">Групп</th>
+                            <th class="text-center">Планов</th>
+                            <th class="text-end">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for spec in specialties %}
+                            <tr {% if editing and editing.pk == spec.pk %}class="table-active"{% endif %}>
+                                <td class="fw-bold">{{ spec.code }}</td>
+                                <td>{{ spec.name }}</td>
+                                <td><span class="badge bg-secondary">{{ spec.abbr }}</span></td>
+                                <td class="text-center">{{ spec.groups.count }}</td>
+                                <td class="text-center">{{ spec.curriculum_set.count }}</td>
+                                <td class="text-end text-nowrap">
+                                    <a href="?edit={{ spec.pk }}" class="btn btn-sm btn-outline-primary">Изменить</a>
+                                    <form method="post" class="d-inline" onsubmit="return confirm('Удалить специальность «{{ spec.name|escapejs }}»?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="delete">
+                                        <input type="hidden" name="specialty_id" value="{{ spec.pk }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Удалить</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-4">Специальностей пока нет</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Форма создания / редактирования -->
+    <div class="col-lg-5">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white py-3">
+                <h5 class="card-title mb-0">
+                    {% if editing %}Редактирование: {{ editing.code }}{% else %}Добавить специальность{% endif %}
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="save">
+                    {% if editing %}
+                        <input type="hidden" name="specialty_id" value="{{ editing.pk }}">
+                    {% endif %}
+
+                    {% for field in form %}
+                        <div class="mb-3">
+                            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                            {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                        </div>
+                    {% endfor %}
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            {% if editing %}Сохранить изменения{% else %}Создать специальность{% endif %}
+                        </button>
+                        {% if editing %}
+                            <a href="{% url 'core:specialties' %}" class="btn btn-outline-secondary">Отмена</a>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

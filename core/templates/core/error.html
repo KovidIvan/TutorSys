@@ -8,7 +8,7 @@
         <div class="col-md-6">
             <div class="card border-danger">
                 <div class="card-header bg-danger text-white">
-                    <h4 class="mb-0">❌ Ошибка {{ code|default:"403" }}</h4>
+                    <h4 class="mb-0">Ошибка {{ code|default:"403" }}</h4>
                 </div>
                 <div class="card-body">
                     <p class="lead">{{ message }}</p>
@@ -22,14 +22,14 @@
                     {% endif %}
 
                     <div class="mt-4">
-                        <a href="/" class="btn btn-primary">🏠 На главную</a>
-                        <a href="/admin/" class="btn btn-secondary">🔧 В админку</a>
+                        <a href="/" class="btn btn-primary">На главную</a>
+                        {% if user.is_staff %}<a href="/admin/" class="btn btn-secondary">В админку</a>{% endif %}
                     </div>
                 </div>
             </div>
 
             <div class="alert alert-info mt-4" role="alert">
-                <strong>💡 Справка по ролям:</strong>
+                <strong>Справка по ролям:</strong>
                 <ul class="mb-0">
                     <li><strong>Зам. декана</strong> — может менять параметры расчёта</li>
                     <li><strong>Зав. кафедрой</strong> — может распределять нагрузку и менять параметры должностей</li>

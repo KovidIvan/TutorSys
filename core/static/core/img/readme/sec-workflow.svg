@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 76" width="100%">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#050b1a"/>
+      <stop offset="55%" stop-color="#0f2347"/>
+      <stop offset="100%" stop-color="#17366e"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0.0"/>
+    </linearGradient>
+    <linearGradient id="border" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#93c5fd" stop-opacity="0.18"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="1198" height="74" rx="14" fill="url(#bg)" stroke="url(#border)" stroke-width="1.5"/>
+  <path d="M0,75 C260,15 620,65 1200,10 L1200,75 Z" fill="url(#glow)"/>
+  <rect x="18" y="14" width="48" height="48" rx="12" fill="#1e3a8a" fill-opacity="0.55" stroke="#60a5fa" stroke-opacity="0.5" stroke-width="1.2"/>
+  <g transform="translate(30, 26)" stroke="#60a5fa" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+  </g>
+  <text x="82" y="36" fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-size="20" font-weight="bold" letter-spacing="1.2">Как работает проект: инструкция по шагам</text>
+  <text x="82" y="56" fill="#93c5fd" opacity="0.85" font-family="'Segoe UI', Inter, system-ui, sans-serif" font-size="12" font-weight="500" letter-spacing="1.5">ПОЛНЫЙ РАБОЧИЙ ЦИКЛ ОТ ЗАГРУЗКИ EXCEL ДО ГОДОВОГО ОТЧЁТА</text>
+</svg>

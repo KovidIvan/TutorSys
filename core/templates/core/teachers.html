@@ -1,0 +1,145 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Преподаватели{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-7">
+        <div class="card mb-4">
+            <div class="card-header"><h4 class="mb-0">Преподаватели кафедры «{{ department.name }}»</h4></div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead>
+                        <tr><th>ФИО</th><th>Должность</th><th>Ставка</th><th>Логин</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                    {% for t in teachers %}
+                        <tr>
+                            <td>{{ t.full_name }}</td>
+                            <td>{{ t.position|default:"—" }}</td>
+                            <td>{{ t.rate }}</td>
+                            <td>{{ t.user.username }}</td>
+                            <td class="text-end text-nowrap">
+                                <a class="btn btn-sm btn-outline-primary" href="?edit={{ t.pk }}">Изменить</a>
+                                <form method="post" class="d-inline"
+                                      onsubmit="return confirm('Удалить преподавателя «{{ t.full_name|escapejs }}»? Будут удалены его учётная запись, нагрузка и записи журнала. Действие необратимо.');">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="teacher_id" value="{{ t.pk }}">
+                                    <button class="btn btn-sm btn-outline-danger">Удалить</button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="5" class="text-muted text-center">Преподавателей пока нет.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">{% if editing %}Изменить: {{ editing.full_name }}{% else %}Добавить преподавателя{% endif %}</h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="save">
+                    {% if editing %}<input type="hidden" name="teacher_id" value="{{ editing.pk }}">{% endif %}
+                    {{ form.non_field_errors }}
+                    {% for field in form %}
+                        <div class="mb-3">
+                            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {% if field.name == 'specialization' %}
+                                <input type="search" id="specialization-search" class="form-control mb-2"
+                                       placeholder="Поиск по названию дисциплины" aria-label="Поиск по названию дисциплины">
+                                {{ field }}
+                                <div id="specialization-no-results" class="form-text" hidden>Дисциплины не найдены.</div>
+                            {% else %}
+                                {{ field }}
+                            {% endif %}
+                            {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                            {% for e in field.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+                        </div>
+                    {% endfor %}
+                    <button class="btn btn-primary">Сохранить</button>
+                    {% if editing %}<a class="btn btn-outline-secondary" href="{% url 'core:teachers' %}">Отмена</a>{% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    (function () {
+        const search = document.getElementById('specialization-search');
+        const checkboxes = document.querySelectorAll(
+            '#id_specialization input[name="specialization"]'
+        );
+        const noResults = document.getElementById('specialization-no-results');
+        if (!search || !checkboxes.length || !noResults) return;
+
+        const choices = Array.from(checkboxes, function (checkbox) {
+            const label = checkbox.closest('label');
+            const textNodes = label
+                ? Array.from(label.childNodes).filter(function (node) {
+                    return node.nodeType === Node.TEXT_NODE;
+                })
+                : [];
+            const text = textNodes.map(function (node) { return node.textContent; }).join('');
+            let highlightContainer = null;
+            if (label && textNodes.length) {
+                highlightContainer = document.createElement('span');
+                label.insertBefore(highlightContainer, textNodes[0]);
+                textNodes.forEach(function (node) { node.remove(); });
+            }
+            return {
+                element: label ? label.parentElement : checkbox.parentElement,
+                text: label ? text : checkbox.parentElement.textContent,
+                highlightContainer: highlightContainer
+            };
+        });
+
+        function renderHighlight(container, text, query) {
+            container.textContent = '';
+            if (!query) {
+                container.textContent = text;
+                return;
+            }
+
+            const normalizedText = text.toLocaleLowerCase();
+            let cursor = 0;
+            let matchIndex = normalizedText.indexOf(query, cursor);
+            while (matchIndex !== -1) {
+                container.appendChild(document.createTextNode(text.slice(cursor, matchIndex)));
+                const highlighted = document.createElement('strong');
+                highlighted.textContent = text.slice(matchIndex, matchIndex + query.length);
+                container.appendChild(highlighted);
+                cursor = matchIndex + query.length;
+                matchIndex = normalizedText.indexOf(query, cursor);
+            }
+            container.appendChild(document.createTextNode(text.slice(cursor)));
+        }
+
+        function filterChoices() {
+            const rawQuery = search.value.trim();
+            const query = rawQuery.toLocaleLowerCase();
+            let visibleCount = 0;
+            choices.forEach(function (choice) {
+                const matches = choice.text.toLocaleLowerCase().includes(query);
+                choice.element.hidden = !matches;
+                if (choice.highlightContainer) {
+                    renderHighlight(choice.highlightContainer, choice.text, query);
+                }
+                if (matches) visibleCount += 1;
+            });
+            noResults.hidden = visibleCount > 0;
+        }
+
+        search.addEventListener('input', filterChoices);
+        filterChoices();
+    })();
+</script>
+{% endblock %}

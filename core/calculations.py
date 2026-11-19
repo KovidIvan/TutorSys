@@ -5,8 +5,29 @@
 """
 
 from decimal import Decimal
-from typing import List, Dict, Tuple
-from .models import LoadItem, Teacher, CalcSettings, Discipline
+from typing import List, Dict
+from django.db.models import Sum
+from django.db.models.functions import ExtractMonth
+from .models import (
+    LoadItem, Teacher, CalcSettings, Discipline, JournalEntry, Adjustment
+)
+
+# Параметры отчёта план/факт.
+MONTH_NAMES = (
+    'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
+)
+# Семестр, в который попадает месяц (июль и август — каникулы, плана нет).
+MONTH_SEASONS = {
+    1: 'fall', 2: 'spring', 3: 'spring', 4: 'spring', 5: 'spring',
+    6: 'spring', 9: 'fall', 10: 'fall', 11: 'fall', 12: 'fall',
+}
+# План семестра равномерно делится на столько месяцев.
+PLAN_MONTHS_PER_SEASON = Decimal('5')
+# Допуск в часах: отклонение в пределах допуска считается выполнением.
+REPORT_TOLERANCE = Decimal('1')
+# Порядок столбцов отчёта, как в образце из задания.
+REPORT_KIND_ORDER = ('lec', 'pract', 'lab', 'usr', 'kr', 'consult', 'exam', 'credit')
 
 
 # ============ РАСЧЁТ НАГРУЗКИ ПО ДИСЦИПЛИНЕ ============
@@ -72,23 +93,16 @@ def calc_department_load(discipline: Discipline, settings: CalcSettings) -> List
 
     # Экзамен или Зачёт (в зависимости от control_form)
     if discipline.control_form == 'exam':
-        # Экзамен: часы на студента + консультации
-        total_students = sum(g.students_count for g in groups)
-        exam_hours = Decimal(str(total_students)) * settings.exam_hours_per_student
-
-        # Консультации добавляются на каждую группу
+        # Экзамен и консультация — одна назначаемая единица нагрузки на группу.
         for group in groups:
             load_items.append({
                 'kind': 'exam',
                 'group': group,
                 'subgroup_no': None,
-                'hours': Decimal(str(group.students_count)) * settings.exam_hours_per_student,
-            })
-            load_items.append({
-                'kind': 'exam',  # консультации тоже kind='exam' для простоты
-                'group': group,
-                'subgroup_no': None,
-                'hours': settings.exam_consult_hours_per_group,
+                'hours': (
+                    Decimal(str(group.students_count)) * settings.exam_hours_per_student
+                    + settings.exam_consult_hours_per_group
+                ),
             })
 
     elif discipline.control_form == 'credit':
@@ -137,8 +151,6 @@ def recalculate_department(department, settings: CalcSettings):
     - Назначенный преподаватель сохраняется
     - Новые элементы создаются, лишние удаляются (кроме тех, с записями в журнале)
     """
-    from .models import JournalEntry
-
     disciplines = Discipline.objects.filter(department=department)
 
     for discipline in disciplines:
@@ -200,11 +212,170 @@ def recalculate_department(department, settings: CalcSettings):
 
 # ============ ПРОВЕРКА НАГРУЗКИ ПРЕПОДАВАТЕЛЯ ============
 
+def _format_hours(hours: Decimal) -> str:
+    return format(hours.normalize(), 'f')
+
+
 def teacher_total(teacher: Teacher) -> Decimal:
-    """Сумма всех назначенных часов преподавателя."""
-    from django.db.models import Sum
+    """Сумма назначенных часов, округлённая до точности хранения часов."""
     total = LoadItem.objects.filter(teacher=teacher).aggregate(total=Sum('hours'))['total']
-    return total or Decimal('0')
+    return (total or Decimal('0')).quantize(Decimal('0.01'))
+
+
+# Порядок видов работ для страницы нагрузки преподавателя (как в образце из задания).
+WORKLOAD_KIND_ORDER = ('lec', 'pract', 'lab', 'usr', 'kr', 'consult', 'exam', 'credit')
+
+
+def teacher_workload(teacher: Teacher) -> Dict:
+    """
+    Построить матрицу нагрузки преподавателя для страницы /workload/.
+
+    Возвращает словарь:
+    {
+        'kinds': [(код, название), ...],          # столбцы таблицы
+        'rows': [                                  # строки по дисциплинам
+            {
+                'discipline': Discipline,
+                'semester': int,
+                'season': 'fall' | 'spring',
+                'hours': {код: Decimal, ...},      # часов по виду
+                'total': Decimal,                  # Всего по дисциплине
+                'groups': str,                     # группы/подгруппы (отображение)
+            },
+            ...
+        ],
+        'fall_totals': {код: Decimal, 'total': Decimal},
+        'spring_totals': {код: Decimal, 'total': Decimal},
+        'grand_totals': {код: Decimal, 'total': Decimal},
+        'has_data': bool,
+    }
+    Строки отсортированы: осенние семестры (нечётные) → весенние (чётные),
+    внутри сезона — по имени дисциплины.
+    """
+    from .models import LoadItem as _LoadItem
+
+    labels = dict(_LoadItem.KIND_CHOICES)
+    # Строим список кодов в нужном порядке — только те, что есть в KIND_CHOICES
+    kind_codes = [k for k in WORKLOAD_KIND_ORDER if k in labels]
+    # Добавляем виды, которых нет в WORKLOAD_KIND_ORDER (на будущее)
+    kind_codes += [k for k in labels if k not in kind_codes]
+
+    zero = Decimal('0')
+
+    items = _LoadItem.objects.filter(teacher=teacher).select_related('discipline', 'group').order_by(
+        'discipline__semester', 'discipline__name', 'kind'
+    )
+
+    # Агрегируем: (discipline, kind) -> sum(hours)
+    from django.db.models import Sum as _Sum
+    agg = (
+        _LoadItem.objects.filter(teacher=teacher)
+        .values('discipline', 'discipline__name', 'discipline__semester', 'kind')
+        .annotate(total=_Sum('hours'))
+        .order_by('discipline__semester', 'discipline__name', 'kind')
+    )
+
+    # Собираем по дисциплинам
+    disc_data: Dict = {}
+    cent = Decimal('0.01')
+    for row in agg:
+        disc_id = row['discipline']
+        if disc_id not in disc_data:
+            disc_data[disc_id] = {
+                'discipline_id': disc_id,
+                'name': row['discipline__name'],
+                'semester': row['discipline__semester'],
+                'hours': {k: zero for k in kind_codes},
+                'total': zero,
+            }
+        kind = row['kind']
+        if kind in kind_codes:
+            val = Decimal(str(row['total'])).quantize(cent)
+            disc_data[disc_id]['hours'][kind] = (disc_data[disc_id]['hours'].get(kind, zero) + val).quantize(cent)
+            disc_data[disc_id]['total'] = (disc_data[disc_id]['total'] + val).quantize(cent)
+
+    # Получаем объекты дисциплин для отображения
+    from .models import Discipline as _Discipline
+    discipline_objs = {d.pk: d for d in _Discipline.objects.filter(
+        pk__in=list(disc_data.keys())
+    ).select_related('curriculum__specialty')}
+
+    # Собираем строки таблицы
+    rows = []
+    for disc_id, data in sorted(disc_data.items(), key=lambda x: (x[1]['semester'], x[1]['name'])):
+        semester = data['semester']
+        season = 'fall' if semester % 2 else 'spring'
+        disc_obj = discipline_objs.get(disc_id)
+
+        # Формируем строку отображения группы/подгрупп
+        groups_set = set()
+        for item in items.filter(discipline_id=disc_id):
+            if item.group:
+                label = item.group.name
+                if item.subgroup_no:
+                    label += f'-{item.subgroup_no}'
+                groups_set.add(label)
+        groups_str = ', '.join(sorted(groups_set)) if groups_set else 'Поток'
+
+        rows.append({
+            'discipline': disc_obj,
+            'semester': semester,
+            'season': season,
+            'hours': data['hours'],
+            'total': data['total'],
+            'groups': groups_str,
+        })
+
+    # Итоги по сезонам
+    fall_totals = {k: zero for k in kind_codes}
+    fall_totals['total'] = zero
+    spring_totals = {k: zero for k in kind_codes}
+    spring_totals['total'] = zero
+    grand_totals = {k: zero for k in kind_codes}
+    grand_totals['total'] = zero
+
+    for row in rows:
+        totals = fall_totals if row['season'] == 'fall' else spring_totals
+        for k in kind_codes:
+            h = row['hours'].get(k, zero).quantize(cent)
+            totals[k] = (totals[k] + h).quantize(cent)
+            grand_totals[k] = (grand_totals[k] + h).quantize(cent)
+        totals['total'] = (totals['total'] + row['total']).quantize(cent)
+        grand_totals['total'] = (grand_totals['total'] + row['total']).quantize(cent)
+
+    kinds = [(k, labels[k]) for k in kind_codes]
+
+    # Преобразуем rows в список (с часами как упорядоченным списком, чтобы шаблон не нуждался в фильтрах)
+    rows_list = []
+    for row in rows:
+        rows_list.append({
+            'discipline': row['discipline'],
+            'semester': row['semester'],
+            'season': row['season'],
+            'groups': row['groups'],
+            'total': row['total'],
+            'hours_list': [row['hours'].get(k, zero) for k in kind_codes],
+        })
+
+    def totals_list(t):
+        return [t.get(k, zero) for k in kind_codes]
+
+    return {
+        'kinds': kinds,
+        'rows': rows_list,
+        'fall_totals_list': totals_list(fall_totals),
+        'fall_totals_total': fall_totals['total'],
+        'spring_totals_list': totals_list(spring_totals),
+        'spring_totals_total': spring_totals['total'],
+        'grand_totals_list': totals_list(grand_totals),
+        'grand_totals_total': grand_totals['total'],
+        # Также возвращаем raw-словари для Excel-экспорта
+        '_kind_codes': kind_codes,
+        '_fall_totals': fall_totals,
+        '_spring_totals': spring_totals,
+        '_grand_totals': grand_totals,
+        'has_data': bool(rows_list),
+    }
 
 
 def check_teacher(teacher: Teacher) -> List[str]:
@@ -224,13 +395,13 @@ def check_teacher(teacher: Teacher) -> List[str]:
     # Проверка минимума
     if total < Decimal(str(teacher.effective_min_hours)):
         warnings.append(
-            f'Меньше минимума: {total} ч из {teacher.effective_min_hours} ч'
+            f'Меньше минимума: {_format_hours(total)} ч из {teacher.effective_min_hours} ч'
         )
 
     # Проверка максимума
     if total > Decimal(str(teacher.effective_max_hours)):
         warnings.append(
-            f'Больше максимума: {total} ч из {teacher.effective_max_hours} ч'
+            f'Больше максимума: {_format_hours(total)} ч из {teacher.effective_max_hours} ч'
         )
 
     # Проверка лекций
@@ -238,11 +409,12 @@ def check_teacher(teacher: Teacher) -> List[str]:
         lecture_hours = LoadItem.objects.filter(
             teacher=teacher, kind='lec'
         ).aggregate(total=Sum('hours'))['total'] or Decimal('0')
+        lecture_hours = lecture_hours.quantize(Decimal('0.01'))
 
         min_lecture = Decimal(str(teacher.position.min_lecture_hours * teacher.rate))
         if lecture_hours < min_lecture:
             warnings.append(
-                f'Лекций меньше нормы: {lecture_hours} ч из {min_lecture} ч'
+                f'Лекций меньше нормы: {_format_hours(lecture_hours)} ч из {_format_hours(min_lecture)} ч'
             )
 
     # Проверка прав на лекции
@@ -292,32 +464,34 @@ def report_for_teacher(teacher: Teacher, year: int = None) -> Dict[str, any]:
         }
     }
     """
-    from django.db.models import Sum
     from datetime import datetime
-    from .models import JournalEntry, Adjustment
 
     if year is None:
         year = datetime.now().year
 
-    # Получить все элементы нагрузки преподавателя
     load_items = LoadItem.objects.filter(teacher=teacher).select_related('discipline')
+    planned_by_kind_and_season = {}
+    planned_items = load_items.values(
+        'kind', 'discipline__semester'
+    ).annotate(total=Sum('hours'))
+    for item in planned_items:
+        season = 'fall' if item['discipline__semester'] % 2 else 'spring'
+        key = (item['kind'], season)
+        planned_by_kind_and_season[key] = (
+            planned_by_kind_and_season.get(key, Decimal('0')) + item['total']
+        )
 
-    # Инициализировать отчёт по месяцам и видам работ
-    report = {
-        'teacher': teacher,
-        'months': {}
-    }
+    kinds = {kind for kind, _ in planned_by_kind_and_season}
+    report = {'teacher': teacher, 'months': {}}
 
     for month in range(1, 13):
         report['months'][month] = {}
-
-        # Все виды работ из нагрузки
-        kinds = load_items.values_list('kind', flat=True).distinct()
+        season = MONTH_SEASONS.get(month)
         for kind in kinds:
-            # План: годовой объём делится на месяцы семестра (упрощённо - на 9 месяцев)
-            # или на месяцы, в которые есть занятия
-            plan_hours = load_items.filter(kind=kind).aggregate(total=Sum('hours'))['total'] or Decimal('0')
-            plan_hours = plan_hours / Decimal('9')  # упрощение: 9 месяцев в семестре
+            plan_hours = (
+                planned_by_kind_and_season.get((kind, season), Decimal('0')) / PLAN_MONTHS_PER_SEASON
+                if season else Decimal('0')
+            )
 
             # Факт: записи в журнале за месяц + Adjustment
             journal_hours = JournalEntry.objects.filter(
@@ -337,13 +511,7 @@ def report_for_teacher(teacher: Teacher, year: int = None) -> Dict[str, any]:
             fact_hours = journal_hours + adjustment_hours
             delta = fact_hours - plan_hours
 
-            # Статус
-            if delta < -Decimal('1'):  # допуск 1 час
-                status = 'under'
-            elif delta > Decimal('1'):
-                status = 'over'
-            else:
-                status = 'ok'
+            status = _delta_status(delta)
 
             report['months'][month][kind] = {
                 'plan': plan_hours,
@@ -355,15 +523,239 @@ def report_for_teacher(teacher: Teacher, year: int = None) -> Dict[str, any]:
     return report
 
 
-def report_for_department(department, year: int = None) -> Dict[str, any]:
-    """
-    Построить сводный отчёт по кафедре.
+def _delta_status(delta: Decimal) -> str:
+    """Статус отклонения факта от плана: 'under' / 'ok' / 'over'."""
+    if delta < -REPORT_TOLERANCE:
+        return 'under'
+    if delta > REPORT_TOLERANCE:
+        return 'over'
+    return 'ok'
 
-    Аналогично report_for_teacher, но по всем преподавателям кафедры.
+
+def report_kinds() -> List[tuple]:
+    """Виды работ в порядке столбцов отчёта: [(код, название), ...]."""
+    labels = dict(LoadItem.KIND_CHOICES)
+    ordered = [kind for kind in REPORT_KIND_ORDER if kind in labels]
+    ordered += [kind for kind in labels if kind not in REPORT_KIND_ORDER]
+    return [(kind, labels[kind]) for kind in ordered]
+
+
+def _report_cell(
+    plan: Decimal, fact: Decimal, month: int, kind: str, colored: bool, title: str
+) -> Dict:
+    """Ячейка матрицы. Цвет (css) задаётся только для итоговых ячеек; title — для окна расшифровки."""
+    delta = fact - plan
+    status = _delta_status(delta)
+    has_data = bool(plan or fact)
+    css = ''
+    if colored and has_data:
+        css = 'table-danger' if status == 'under' else 'table-success'
+    return {
+        'month': month,
+        'kind': kind,
+        'plan': plan,
+        'fact': fact,
+        'delta': delta,
+        'status': status,
+        'css': css,
+        'title': title,
+        'has_data': has_data,
+    }
+
+
+def build_report_matrix(plan_rows, fact_rows, adjustment_rows, kinds) -> Dict:
     """
-    teachers = Teacher.objects.filter(department=department)
+    Собрать матрицу отчёта «месяц × виды работ» из готовых строк (без обращения к БД).
+
+    plan_rows: словари teacher_id, teacher, discipline_id, discipline, kind, semester, hours
+    fact_rows: словари teacher_id, teacher, discipline_id, discipline, kind, month, hours
+    adjustment_rows: как fact_rows, плюс planned (bool) и reason (str)
+    kinds: [(код, название), ...] — столбцы отчёта
+
+    Возвращает словарь:
+    {
+        'kinds': kinds,
+        'rows': [{'month', 'name', 'cells': [ячейка по видам], 'total': ячейка «Всего»} × 12],
+        'totals': {'cells': [...], 'total': ячейка «Итого за год»},
+        'details': [строки для окна с расшифровкой по клику],
+        'adjustments': [корректировки по месяцам],
+        'has_data': bool,
+    }
+    Ячейка: month, kind, plan, fact, delta, status, css, title, has_data
+    (month = 0 для итогов за год, kind = 'all' для итогов по всем видам).
+    Итоговые ячейки («Всего» по месяцу, итоги по виду и за год) закрашиваются:
+    css = 'table-danger' при недовыполнении, 'table-success' при перевыполнении.
+    """
+    zero = Decimal('0')
+    labels = dict(kinds)
+    kind_codes = [code for code, _ in kinds]
+    items = {}  # (преподаватель, дисциплина, вид, месяц) -> план, факт и причины
+
+    def item_for(row, month):
+        key = (row['teacher_id'], row['discipline_id'], row['kind'], month)
+        item = items.get(key)
+        if item is None:
+            item = items[key] = {
+                'm': month, 'k': row['kind'], 'kn': labels[row['kind']],
+                't': row['teacher_id'], 'tn': row['teacher'],
+                'd': row['discipline_id'], 'dn': row['discipline'],
+                'p': zero, 'f': zero, 'r': [],
+            }
+        return item
+
+    for row in plan_rows:
+        if row['kind'] not in labels:
+            continue
+        season = 'fall' if row['semester'] % 2 else 'spring'
+        part = row['hours'] / PLAN_MONTHS_PER_SEASON
+        for month, month_season in MONTH_SEASONS.items():
+            if month_season == season:
+                item_for(row, month)['p'] += part
+
+    for row in fact_rows:
+        if row['kind'] in labels:
+            item_for(row, row['month'])['f'] += row['hours']
+
+    adjustments = []
+    for row in adjustment_rows:
+        if row['kind'] not in labels:
+            continue
+        item = item_for(row, row['month'])
+        item['f'] += row['hours']
+        item['r'].append({'h': row['hours'], 'text': row['reason'], 'planned': row['planned']})
+        adjustments.append({
+            'month': row['month'],
+            'teacher': row['teacher'],
+            'discipline': row['discipline'],
+            'kind': labels[row['kind']],
+            'hours': row['hours'],
+            'planned': row['planned'],
+            'reason': row['reason'],
+        })
+    adjustments.sort(key=lambda a: (a['month'], a['teacher'], a['discipline'], a['kind']))
+
+    plan_by_cell, fact_by_cell = {}, {}
+    for item in items.values():
+        key = (item['m'], item['k'])
+        plan_by_cell[key] = plan_by_cell.get(key, zero) + item['p']
+        fact_by_cell[key] = fact_by_cell.get(key, zero) + item['f']
+
+    rows = []
+    year_plan = {code: zero for code in kind_codes}
+    year_fact = {code: zero for code in kind_codes}
+    grand_plan = grand_fact = zero
+    for month in range(1, 13):
+        cells = []
+        month_plan = month_fact = zero
+        for code in kind_codes:
+            plan = plan_by_cell.get((month, code), zero)
+            fact = fact_by_cell.get((month, code), zero)
+            cells.append(_report_cell(
+                plan, fact, month, code, colored=False,
+                title=f'{MONTH_NAMES[month - 1]} · {labels[code]}'
+            ))
+            month_plan += plan
+            month_fact += fact
+            year_plan[code] += plan
+            year_fact[code] += fact
+        rows.append({
+            'month': month,
+            'name': MONTH_NAMES[month - 1],
+            'cells': cells,
+            'total': _report_cell(
+                month_plan, month_fact, month, 'all', colored=True,
+                title=f'{MONTH_NAMES[month - 1]} · всего'
+            ),
+        })
+        grand_plan += month_plan
+        grand_fact += month_fact
+
+    totals = {
+        'cells': [
+            _report_cell(
+                year_plan[code], year_fact[code], 0, code, colored=True,
+                title=f'Год · {labels[code]}'
+            )
+            for code in kind_codes
+        ],
+        'total': _report_cell(grand_plan, grand_fact, 0, 'all', colored=True, title='Итого за год'),
+    }
+
+    details = []
+    for item in sorted(items.values(), key=lambda x: (x['m'], x['k'], x['tn'], x['dn'])):
+        if not (item['p'] or item['f'] or item['r']):
+            continue
+        details.append({
+            **item,
+            'p': str(item['p']),
+            'f': str(item['f']),
+            'r': [
+                {'h': str(reason['h']), 'text': reason['text'], 'planned': reason['planned']}
+                for reason in item['r']
+            ],
+        })
 
     return {
-        'department': department,
-        'teacher_reports': [report_for_teacher(t, year) for t in teachers]
+        'kinds': kinds,
+        'rows': rows,
+        'totals': totals,
+        'details': details,
+        'adjustments': adjustments,
+        'has_data': bool(grand_plan or grand_fact or adjustments),
     }
+
+
+def report_matrix(teachers, year: int) -> Dict:
+    """
+    Матрица отчёта план/факт за год для одного преподавателя или для группы
+    преподавателей (например, всей кафедры). Формат результата — build_report_matrix.
+    """
+    teacher_list = list(teachers)
+    ids = [teacher.pk for teacher in teacher_list]
+    names = {teacher.pk: teacher.full_name for teacher in teacher_list}
+
+    plan_rows = [
+        {
+            'teacher_id': row['teacher'], 'teacher': names[row['teacher']],
+            'discipline_id': row['discipline'], 'discipline': row['discipline__name'],
+            'kind': row['kind'], 'semester': row['discipline__semester'],
+            'hours': row['total'],
+        }
+        for row in LoadItem.objects.filter(teacher__in=ids)
+        .values('teacher', 'discipline', 'discipline__name', 'discipline__semester', 'kind')
+        .annotate(total=Sum('hours'))
+        .order_by()
+    ]
+
+    fact_rows = [
+        {
+            'teacher_id': row['teacher'], 'teacher': names[row['teacher']],
+            'discipline_id': row['load_item__discipline'],
+            'discipline': row['load_item__discipline__name'],
+            'kind': row['load_item__kind'], 'month': row['month'],
+            'hours': row['total'],
+        }
+        for row in JournalEntry.objects.filter(teacher__in=ids, date__year=year)
+        .annotate(month=ExtractMonth('date'))
+        .values(
+            'teacher', 'load_item__discipline', 'load_item__discipline__name',
+            'load_item__kind', 'month'
+        )
+        .annotate(total=Sum('hours'))
+        .order_by()
+    ]
+
+    adjustment_rows = [
+        {
+            'teacher_id': adjustment.teacher_id, 'teacher': names[adjustment.teacher_id],
+            'discipline_id': adjustment.discipline_id,
+            'discipline': adjustment.discipline.name,
+            'kind': adjustment.kind, 'month': adjustment.month,
+            'hours': adjustment.hours_delta, 'planned': adjustment.planned,
+            'reason': adjustment.reason,
+        }
+        for adjustment in Adjustment.objects.filter(teacher__in=ids, year=year)
+        .select_related('discipline')
+    ]
+
+    return build_report_matrix(plan_rows, fact_rows, adjustment_rows, report_kinds())
