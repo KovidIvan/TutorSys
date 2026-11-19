@@ -39,10 +39,20 @@ def error_page(request, message, code=403):
     return render(request, 'core/error.html', context, status=code)
 
 
+def csrf_failure_view(request, reason=''):
+    """При истечении или сбросе CSRF-токена на странице входа — мягко перезагрузить форму входа."""
+    messages.warning(request, 'Сессия формы обновилась. Пожалуйста, повторите вход.')
+    if request.path.startswith('/accounts/login'):
+        return redirect('login')
+    return redirect(request.path or '/')
+
+
 def login_view(request, *args, **kwargs):
     """Страница входа: при открытии страницы логина сбрасывает предыдущую активную сессию."""
     if request.method == 'GET' and request.user.is_authenticated:
         logout(request)
+        from django.middleware.csrf import get_token
+        get_token(request)
     return auth_views.LoginView.as_view()(request, *args, **kwargs)
 
 

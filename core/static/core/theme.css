@@ -186,13 +186,22 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {
 /* ---------- Таблицы ---------- */
 .table { --bs-table-bg: transparent; color: var(--ink); }
 .table > :not(caption) > * > * { background-color: transparent; border-bottom-color: rgba(15, 35, 71, 0.08); }
-.table-light, .table > thead.table-light > tr > th, thead.table-light th {
-    --bs-table-bg: rgba(15, 35, 71, 0.06);
-    background: rgba(15, 35, 71, 0.06) !important;
+.table-light, .table > thead.table-light > tr > th, thead.table-light th, .table > thead > tr > th {
+    --bs-table-bg: #e7eef8;
+    background: #e7eef8 !important;
     font-family: var(--serif);
     font-size: 0.95rem;
     letter-spacing: 0.04em;
     color: var(--navy-800);
+}
+thead.sticky-top,
+.table > thead.sticky-top > tr > th,
+.table > thead > tr > th.sticky-top {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #e7eef8 !important;
+    box-shadow: 0 2px 6px rgba(15, 35, 71, 0.12), inset 0 -1px 0 rgba(15, 35, 71, 0.14);
 }
 .table-hover > tbody > tr:hover > * { background-color: rgba(255, 255, 255, 0.6); }
 .table-active > *, tr.table-active > * { background-color: rgba(37, 99, 235, 0.12) !important; }

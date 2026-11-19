@@ -34,12 +34,12 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.locale.LocaleMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'core.middleware.DynamicOriginAndNoStoreMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_htmx.middleware.HtmxMiddleware',
-    'core.middleware.NoStoreCacheMiddleware',
 ]
 
 ROOT_URLCONF = 'nagruzka.urls'
@@ -107,4 +107,6 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 # Telegram Bot & Mini App (WebApp) settings
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
 TELEGRAM_WEBAPP_URL = os.getenv('TELEGRAM_WEBAPP_URL', '').strip()
-X_FRAME_OPTIONS = 'SAMEORIGIN'
+X_FRAME_OPTIONS = 'ALLOWALL'
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+CSRF_FAILURE_VIEW = 'core.views.csrf_failure_view'
