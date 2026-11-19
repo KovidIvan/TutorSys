@@ -1575,10 +1575,27 @@ class DeputyDeanUITestCase(TestCase):
         self.load_item.teacher = t_ass
         self.load_item.save()
 
-        recalculate_department(self.dept, CalcSettings.get())
-
+        # 1) При включённом флаге lock_assigned=True уже назначенный преподаватель НЕ снимается
+        recalculate_department(self.dept, CalcSettings.get(), lock_assigned=True)
         lec_item = LoadItem.objects.filter(discipline=self.discipline, kind='lec').first()
-        self.assertIsNotNone(lec_item)
-        # Лекция должна быть автоматически снята с ассистента и передана доценту с правом лекций и специализацией
+        self.assertEqual(lec_item.teacher, t_ass)
+
+        # 2) При выключенном флаге lock_assigned=False все назначения сбрасываются и перераспределяются заново:
+        # лекция снимается с ассистента и передаётся доценту с правом лекций и специализацией
+        recalculate_department(self.dept, CalcSettings.get(), lock_assigned=False)
+        lec_item.refresh_from_db()
         self.assertEqual(lec_item.teacher, t_doc)
+
+        # 3) Если у доцента убрать дисциплину из специализации, а добавить новому преподавателю —
+        # при пересчёте с lock_assigned=False дисциплина переходит новому преподавателю
+        t_doc.specialization.clear()
+        u_new = User.objects.create_user('new_doc_auto', password='pass')
+        t_new = Teacher.objects.create(
+            user=u_new, full_name='Новый Доцент', department=self.dept, position=pos_docent, rate=Decimal('1.0')
+        )
+        t_new.specialization.add(self.discipline)
+
+        recalculate_department(self.dept, CalcSettings.get(), lock_assigned=False)
+        lec_item.refresh_from_db()
+        self.assertEqual(lec_item.teacher, t_new)
 

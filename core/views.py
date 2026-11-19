@@ -173,34 +173,39 @@ def settings_view(request):
         # ============ ПЕРЕСЧЁТ НАГРУЗКИ ============
         elif action in ('recalculate_all', 'recalculate_department'):
             try:
+                lock_assigned = request.POST.get('lock_assigned') == '1'
+                mode_label = (
+                    'Уже назначенные преподаватели зафиксированы.'
+                    if lock_assigned else
+                    'Все назначения перераспределены заново по специализации и нормам.'
+                )
                 if has_role(request.user, 'head'):
                     # Зав. кафедрой пересчитывает часы ТОЛЬКО для своей кафедры
                     try:
                         dept = request.user.teacher.department
                     except (Teacher.DoesNotExist, AttributeError):
                         return error_page(request, 'Для вашей учётной записи не указана кафедра.', 404)
-                    recalculate_department(dept, settings)
+                    recalculate_department(dept, settings, lock_assigned=lock_assigned)
                     messages.success(
                         request,
-                        f'Нагрузка успешно пересчитана только для кафедры «{dept.name}». '
-                        'Преподаватели автоматически подобраны по специализации, нормам лекций и лимитам часов.'
+                        f'Нагрузка пересчитана для кафедры «{dept.name}». {mode_label}'
                     )
                 elif has_role(request.user, 'deputy_dean'):
                     dept_id = request.POST.get('department_id')
                     if dept_id:
                         dept = get_object_or_404(Department, pk=dept_id)
-                        recalculate_department(dept, settings)
+                        recalculate_department(dept, settings, lock_assigned=lock_assigned)
                         messages.success(
                             request,
-                            f'Нагрузка пересчитана и распределена по специализации для кафедры «{dept.name}».'
+                            f'Нагрузка пересчитана для кафедры «{dept.name}». {mode_label}'
                         )
                     else:
                         departments = Department.objects.all()
                         for dept in departments:
-                            recalculate_department(dept, settings)
+                            recalculate_department(dept, settings, lock_assigned=lock_assigned)
                         messages.success(
                             request,
-                            f'Нагрузка пересчитана и распределена для всех кафедр ({departments.count()}).'
+                            f'Нагрузка пересчитана для всех кафедр ({departments.count()}). {mode_label}'
                         )
             except Exception as e:
                 messages.error(request, f'Ошибка при пересчёте: {e}')
@@ -470,10 +475,10 @@ def teachers_view(request):
             form = TeacherForm(request.POST, instance=instance, department=department)
             if form.is_valid():
                 teacher = form.save()
-                auto_assign_department_load(department)
+                auto_assign_department_load(department, lock_assigned=False)
                 messages.success(
                     request,
-                    f'Преподаватель «{teacher.full_name}» сохранён, нагрузка кафедры автоматически подобрана по специализации и нормам.'
+                    f'Преподаватель «{teacher.full_name}» сохранён, нагрузка кафедры автоматически перераспределена по специализации и нормам.'
                 )
                 return redirect('core:teachers')
         else:
@@ -562,13 +567,22 @@ def distribution_view(request):
         if action == 'recalculate':
             if not user_department:
                 return error_page(request, 'Для вашей учётной записи не указана кафедра.', 404)
+            lock_assigned = request.POST.get('lock_assigned') == '1'
+            request.session['lock_assigned'] = lock_assigned
             settings = CalcSettings.get()
-            recalculate_department(user_department, settings)
-            messages.success(
-                request,
-                f'Нагрузка успешно пересчитана для кафедры «{user_department.name}». '
-                'Преподаватели автоматически подобраны по специализации, нормам лекций и часам.'
-            )
+            recalculate_department(user_department, settings, lock_assigned=lock_assigned)
+            if lock_assigned:
+                messages.success(
+                    request,
+                    f'Часы кафедры «{user_department.name}» пересчитаны. '
+                    'Уже назначенные преподаватели зафиксированы, распределены только свободные позиции.'
+                )
+            else:
+                messages.success(
+                    request,
+                    f'Нагрузка кафедры «{user_department.name}» полностью пересчитана и заново распределена '
+                    'между всеми преподавателями по их специализации, нормам лекций и часам.'
+                )
             return redirect('core:distribution')
 
         load_item = get_object_or_404(
@@ -603,6 +617,7 @@ def distribution_view(request):
         'teachers': teachers,
         'teachers_data': teachers_data,
         'user_department': user_department,
+        'lock_assigned': request.session.get('lock_assigned', False),
     }
     context = add_role_context(context, request)
     return render(request, 'core/distribution.html', context)
