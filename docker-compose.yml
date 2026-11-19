@@ -9,6 +9,47 @@ services:
       - DEBUG=${DEBUG:-True}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
       - SQLITE_PATH=/app/data/db.sqlite3
+      - DB_ENGINE=${DB_ENGINE:-}
+      - DB_NAME=${DB_NAME:-}
+      - DB_USER=${DB_USER:-}
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      - DB_HOST=${DB_HOST:-}
+      - DB_PORT=${DB_PORT:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
+      - TELEGRAM_OUTBOX_POLL_SECONDS=${TELEGRAM_OUTBOX_POLL_SECONDS:-5}
+      - SITE_URL=${SITE_URL:-}
+      - USE_HTTPS=${USE_HTTPS:-False}
+      - TELEGRAM_PRIVACY_MODE=${TELEGRAM_PRIVACY_MODE:-full}
+      - TELEGRAM_REQUIRE_CONSENT=${TELEGRAM_REQUIRE_CONSENT:-True}
+      - TELEGRAM_OUTBOX_KEEP_DAYS=${TELEGRAM_OUTBOX_KEEP_DAYS:-7}
+    volumes:
+      - scale_data:/app/data
+
+  bot:
+    build: .
+    container_name: scale_bot
+    restart: unless-stopped
+    command: ["sh", "-c", "if [ -z \"$TELEGRAM_BOT_TOKEN\" ]; then echo 'TELEGRAM_BOT_TOKEN is empty; Telegram bot disabled'; exit 0; fi; exec python manage.py run_telegram_bot"]
+    depends_on:
+      - web
+    environment:
+      - DEBUG=${DEBUG:-True}
+      - SQLITE_PATH=/app/data/db.sqlite3
+      - DB_ENGINE=${DB_ENGINE:-}
+      - DB_NAME=${DB_NAME:-}
+      - DB_USER=${DB_USER:-}
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      - DB_HOST=${DB_HOST:-}
+      - DB_PORT=${DB_PORT:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
+      - TELEGRAM_OUTBOX_POLL_SECONDS=${TELEGRAM_OUTBOX_POLL_SECONDS:-5}
+      - SITE_URL=${SITE_URL:-}
+      - USE_HTTPS=${USE_HTTPS:-False}
+      - TELEGRAM_PRIVACY_MODE=${TELEGRAM_PRIVACY_MODE:-full}
+      - TELEGRAM_REQUIRE_CONSENT=${TELEGRAM_REQUIRE_CONSENT:-True}
+      - TELEGRAM_OUTBOX_KEEP_DAYS=${TELEGRAM_OUTBOX_KEEP_DAYS:-7}
     volumes:
       - scale_data:/app/data
 

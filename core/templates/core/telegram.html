@@ -1,0 +1,44 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Telegram{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header"><h2 class="h5 mb-0">Привязка Telegram</h2></div>
+            <div class="card-body">
+                {% if not telegram_bot_configured %}
+                    <div class="alert alert-info">Telegram-бот не настроен.</div>
+                {% else %}
+                    {% if telegram_link %}
+                        <p>Статус: <strong>привязан</strong></p>
+                        <p>Аккаунт: {% if telegram_link.username %}@{{ telegram_link.username }}{% else %}имя не указано{% endif %}</p>
+                        <p>Дата привязки: {{ telegram_link.linked_at|date:'d.m.Y H:i' }}</p>
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="unlink">
+                            <button class="btn btn-outline-danger" type="submit">Отвязать</button>
+                        </form>
+                    {% else %}
+                        <p>Статус: <strong>не привязан</strong></p>
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="create_code">
+                            <button class="btn btn-primary" type="submit">Создать код привязки</button>
+                        </form>
+                    {% endif %}
+                    {% if generated_code %}
+                        <div class="alert alert-success mt-3">
+                            <p>Код действует 10 минут и может быть использован только один раз. Он больше не будет показан.</p>
+                            <p><code>{{ generated_code }}</code></p>
+                            <a class="btn btn-success" href="{{ bot_url }}">Открыть Telegram-бот</a>
+                        </div>
+                    {% endif %}
+                {% endif %}
+                <p class="text-muted mt-3 mb-0">Не отправляйте код другим людям. Бот не запрашивает пароль от сайта.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -37,6 +37,12 @@ if [ "$STOP_SERVICE" = true ]; then
         sudo systemctl disable scale.service || true
         echo "Фоновый сервис systemd (scale.service) остановлен и отключён."
     fi
+    if systemctl list-unit-files | grep -q "^scale-bot.service"; then
+        sudo systemctl stop scale-bot.service || true
+        sudo systemctl disable scale-bot.service || true
+        echo "Фоновый сервис systemd (scale-bot.service) остановлен и отключён."
+    fi
+    pkill -f "manage.py run_telegram_bot" 2>/dev/null && echo "Запущенный процесс Telegram-бота завершён." || echo "Активных процессов Telegram-бота не найдено."
     pkill -f "manage.py runserver" 2>/dev/null && echo "Запущенный процесс runserver завершён." || echo "Активных процессов runserver не найдено."
     exit 0
 fi
@@ -130,6 +136,30 @@ WantedBy=multi-user.target
 EOF
     sudo systemctl daemon-reload
     sudo systemctl enable --now scale.service
+    if grep -qE '^TELEGRAM_BOT_TOKEN=.{1,}' .env; then
+        BOT_SERVICE_FILE="/etc/systemd/system/scale-bot.service"
+        sudo tee "$BOT_SERVICE_FILE" > /dev/null <<EOF
+[Unit]
+Description=S.C.A.L.E Telegram Bot
+After=network.target scale.service
+
+[Service]
+Type=simple
+User=${CURRENT_USER}
+WorkingDirectory=${APP_DIR}
+ExecStart=${APP_DIR}/.venv/bin/python ${APP_DIR}/manage.py run_telegram_bot
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        sudo systemctl daemon-reload
+        sudo systemctl enable --now scale-bot.service
+        echo "Telegram-бот запущен как сервис systemd (scale-bot.service)."
+    else
+        echo "TELEGRAM_BOT_TOKEN не задан: сервис бота не запускается."
+    fi
     echo ""
     echo "=================================================================="
     echo " S.C.A.L.E запущен в фоне как сервис systemd (scale.service)!"
@@ -138,9 +168,18 @@ EOF
     echo "   sudo systemctl status scale"
     echo "   sudo systemctl restart scale"
     echo "   sudo journalctl -u scale -f"
+    echo "   sudo systemctl status scale-bot"
     echo "=================================================================="
 else
     echo "==> [5/5] Запуск сервера S.C.A.L.E на 0.0.0.0:${PORT}..."
     echo "Адрес: http://<IP_ВАШЕГО_СЕРВЕРА>:${PORT}/accounts/login/"
-    exec python manage.py runserver "0.0.0.0:${PORT}" --insecure
+    if grep -qE '^TELEGRAM_BOT_TOKEN=.{1,}' .env; then
+        python manage.py run_telegram_bot &
+        BOT_PID=$!
+        trap 'kill "$BOT_PID" 2>/dev/null || true' EXIT INT TERM
+        echo "Telegram-бот запущен отдельным процессом (PID ${BOT_PID})."
+    else
+        echo "TELEGRAM_BOT_TOKEN не задан: Telegram-бот не запускается."
+    fi
+    python manage.py runserver "0.0.0.0:${PORT}" --insecure
 fi

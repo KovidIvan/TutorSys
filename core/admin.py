@@ -2,7 +2,8 @@ from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
     Specialty, Department, Group, Curriculum, Discipline,
-    CalcSettings, PositionRule, Teacher, LoadItem, JournalEntry, Adjustment
+    CalcSettings, PositionRule, Teacher, LoadItem, JournalEntry, Adjustment,
+    TelegramLink, TelegramLinkToken, TelegramOutbox
 )
 
 
@@ -290,3 +291,42 @@ class AdjustmentAdmin(admin.ModelAdmin):
         """Показать первые 40 символов причины."""
         return obj.reason[:40] + '...' if len(obj.reason) > 40 else obj.reason
     reason_short.short_description = 'Причина'
+
+
+@admin.register(TelegramLink)
+class TelegramLinkAdmin(admin.ModelAdmin):
+    list_display = ['user', 'telegram_user_id', 'username', 'notifications_enabled', 'consent_at', 'linked_at']
+    search_fields = ['user__username', 'user__email', 'username', 'telegram_user_id']
+    readonly_fields = ['user', 'telegram_user_id', 'chat_id', 'username', 'notifications_enabled', 'consent_at', 'linked_at']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TelegramLinkToken)
+class TelegramLinkTokenAdmin(admin.ModelAdmin):
+    list_display = ['user', 'created_at', 'expires_at', 'used_at']
+    readonly_fields = ['user', 'created_at', 'expires_at', 'used_at']
+    exclude = ['token_hash']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TelegramOutbox)
+class TelegramOutboxAdmin(admin.ModelAdmin):
+    list_display = ['link', 'kind', 'created_at', 'sent_at', 'attempts']
+    list_filter = ['kind', 'sent_at']
+    readonly_fields = ['link', 'kind', 'text', 'dedupe_key', 'created_at', 'sent_at', 'attempts', 'last_error']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

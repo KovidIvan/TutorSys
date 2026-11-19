@@ -586,3 +586,63 @@ class Adjustment(models.Model):
 
     def __str__(self):
         return f'{self.teacher} — {self.discipline.name} ({self.get_kind_display()}) на {self.month} мес.'
+
+
+class TelegramLink(models.Model):
+    """Привязка учётной записи сайта к личному Telegram-чату."""
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='telegram_link',
+        verbose_name='Пользователь сайта'
+    )
+    telegram_user_id = models.BigIntegerField(unique=True, verbose_name='ID пользователя Telegram')
+    chat_id = models.BigIntegerField(unique=True, verbose_name='ID личного чата')
+    username = models.CharField(max_length=64, blank=True, verbose_name='Имя пользователя Telegram')
+    notifications_enabled = models.BooleanField(default=True, verbose_name='Уведомления включены')
+    consent_at = models.DateTimeField(null=True, blank=True, verbose_name='Согласие получено')
+    linked_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата привязки')
+
+    class Meta:
+        verbose_name = 'Привязка Telegram'
+        verbose_name_plural = 'Привязки Telegram'
+
+    def __str__(self):
+        return f'{self.user} — Telegram {self.telegram_user_id}'
+
+
+class TelegramLinkToken(models.Model):
+    """Одноразовый токен привязки; в базе хранится только его SHA-256-хэш."""
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='telegram_tokens',
+        verbose_name='Пользователь сайта'
+    )
+    token_hash = models.CharField(max_length=64, unique=True, verbose_name='Хэш кода')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Создан')
+    expires_at = models.DateTimeField(verbose_name='Истекает')
+    used_at = models.DateTimeField(null=True, blank=True, verbose_name='Использован')
+
+    class Meta:
+        verbose_name = 'Код привязки Telegram'
+        verbose_name_plural = 'Коды привязки Telegram'
+
+    def __str__(self):
+        return f'{self.user} — {self.created_at:%Y-%m-%d %H:%M}'
+
+
+class TelegramOutbox(models.Model):
+    """Очередь исходящих сообщений Telegram, отправляемых процессом бота."""
+    link = models.ForeignKey(
+        TelegramLink, on_delete=models.CASCADE, related_name='outbox',
+        verbose_name='Привязка Telegram'
+    )
+    kind = models.CharField(max_length=40, verbose_name='Тип уведомления')
+    text = models.TextField(verbose_name='Текст сообщения')
+    dedupe_key = models.CharField(max_length=120, blank=True, db_index=True, verbose_name='Ключ объединения')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Создано')
+    sent_at = models.DateTimeField(null=True, blank=True, verbose_name='Отправлено')
+    attempts = models.PositiveSmallIntegerField(default=0, verbose_name='Попытки отправки')
+    last_error = models.CharField(max_length=255, blank=True, verbose_name='Последняя ошибка')
+
+    class Meta:
+        verbose_name = 'Сообщение Telegram'
+        verbose_name_plural = 'Очередь сообщений Telegram'
+        ordering = ['created_at']

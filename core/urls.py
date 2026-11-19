@@ -3,11 +3,13 @@ URL-маршруты приложения core.
 """
 
 from django.urls import path
-from . import views
+from . import views, telegram_views
 
 app_name = 'core'
 
 urlpatterns = [
+    path('telegram/', telegram_views.telegram_account_view, name='telegram_account'),
+
     # Деканат (интерфейс заместителя декана)
     path('dean/', views.dean_dashboard_view, name='dean_dashboard'),
     path('dean/specialties/', views.specialties_view, name='specialties'),

@@ -16,8 +16,6 @@ from django.http import HttpResponse, JsonResponse, Http404
 from django.views.decorators.http import require_http_methods
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
 from .models import (
     CalcSettings, PositionRule, Discipline, Department, Teacher, LoadItem, JournalEntry,
     Adjustment, Specialty, Curriculum, Group as AcademicGroup
@@ -28,6 +26,13 @@ from .calculations import (
     report_matrix, MONTH_NAMES, REPORT_TOLERANCE
 )
 from .importers import WorkloadImportError, import_workload_xlsx
+from .services import ServiceError
+from .services.distribution import assign_load_item, department_of
+from .services.exports import (
+    build_xlsx_bytes, department_load_table, journal_table, report_tables,
+    teachers_table, workload_table,
+)
+from .services.journal import add_journal_entry
 
 
 # ============ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ============
@@ -164,9 +169,8 @@ def settings_view(request):
             try:
                 if has_role(request.user, 'head'):
                     # Зав. кафедрой пересчитывает часы ТОЛЬКО для своей кафедры
-                    try:
-                        dept = request.user.teacher.department
-                    except (Teacher.DoesNotExist, AttributeError):
+                    dept = department_of(request.user)
+                    if not dept:
                         return error_page(request, 'Для вашей учётной записи не указана кафедра.', 404)
                     recalculate_department(dept, settings)
                     messages.success(
@@ -431,9 +435,8 @@ def teachers_view(request):
     """Список преподавателей кафедры, добавление, правка и удаление. Доступ: зав. кафедрой."""
     if not has_role(request.user, 'head'):
         return error_page(request, 'Доступ запрещён. Страница доступна только зав. кафедрой.', 403)
-    try:
-        department = request.user.teacher.department
-    except Teacher.DoesNotExist:
+    department = department_of(request.user)
+    if not department:
         return error_page(request, 'Ваша учётная запись не привязана к кафедре.', 403)
 
     teachers_qs = Teacher.objects.filter(department=department)
@@ -491,10 +494,7 @@ def distribution_view(request):
     if not has_role(request.user, 'head'):
         return error_page(request, 'Доступ запрещён. Только зав. кафедрой может распределять нагрузку.', 403)
 
-    try:
-        user_department = request.user.teacher.department
-    except Teacher.DoesNotExist:
-        user_department = None
+    user_department = department_of(request.user)
 
     disciplines = (
         Discipline.objects.filter(department=user_department).order_by('name')
@@ -557,20 +557,14 @@ def distribution_view(request):
             )
             return redirect('core:distribution')
 
-        load_item = get_object_or_404(
-            LoadItem.objects.select_related('discipline'),
-            pk=request.POST.get('load_item_id')
-        )
-        if not user_department or load_item.discipline.department_id != user_department.pk:
-            return error_page(request, 'Нельзя менять нагрузку другой кафедры.', 403)
-
-        teacher_id = request.POST.get('teacher_id')
-        teacher = get_object_or_404(Teacher, pk=teacher_id) if teacher_id else None
-        if teacher and teacher.department_id != user_department.pk:
-            return error_page(request, 'Нельзя назначить преподавателя другой кафедры.', 403)
-
-        load_item.teacher = teacher
-        load_item.save()
+        try:
+            load_item = assign_load_item(
+                request.user,
+                request.POST.get('load_item_id'),
+                request.POST.get('teacher_id'),
+            )
+        except ServiceError as exc:
+            return error_page(request, exc.message, exc.code)
 
         if request.htmx:
             return render(request, 'core/_teacher_panel.html', {
@@ -661,38 +655,16 @@ def journal_view(request):
 
         if action == 'add_entry':
             try:
-                load_item_id = request.POST.get('load_item_id')
-                raw_date = (request.POST.get('date') or '').strip()
-                raw_time = (request.POST.get('time') or '').strip()
-                raw_hours = (request.POST.get('hours') or '').strip()
-                topic = (request.POST.get('topic') or '').strip()
-
-                if not raw_date:
-                    raise ValueError('Дата не указана.')
-                entry_date = date.fromisoformat(raw_date)
-
-                if not raw_hours:
-                    raise ValueError('Часы не указаны.')
-                hours_decimal = Decimal(raw_hours)
-                if hours_decimal <= Decimal('0') or not hours_decimal.is_finite() or hours_decimal > Decimal('999.99'):
-                    raise ValueError('Некорректное значение часов.')
-
-                if not topic:
-                    raise ValueError('Тема не указана.')
-
-                load_item = get_object_or_404(LoadItem, pk=load_item_id, teacher=teacher)
-
-                JournalEntry.objects.create(
+                add_journal_entry(
                     teacher=teacher,
-                    load_item=load_item,
-                    date=entry_date,
-                    time=raw_time if raw_time else None,
-                    hours=hours_decimal,
-                    topic=topic
+                    load_item_id=request.POST.get('load_item_id'),
+                    raw_date=(request.POST.get('date') or '').strip(),
+                    raw_time=(request.POST.get('time') or '').strip(),
+                    raw_hours=(request.POST.get('hours') or '').strip(),
+                    topic=(request.POST.get('topic') or '').strip(),
                 )
-
                 messages.success(request, 'Запись в журнал добавлена.')
-            except (ValueError, ValidationError, InvalidOperation, Http404):
+            except ServiceError:
                 messages.error(request, 'Не удалось добавить запись: проверьте дату и часы.')
 
         return redirect('core:journal')
@@ -742,9 +714,8 @@ def _report_subject(request, raw_teacher_id):
         return teacher.department, teachers, teacher, None
 
     if has_role(request.user, 'head'):
-        try:
-            department = request.user.teacher.department
-        except Teacher.DoesNotExist:
+        department = department_of(request.user)
+        if not department:
             return None, None, None, error_page(
                 request, 'Для вашей учётной записи не указана кафедра.', 404
             )
@@ -869,48 +840,12 @@ def report_view(request):
     return render(request, 'core/report.html', context)
 
 
-def _fill_sheet(worksheet, headers, rows):
-    """Заполнить лист: шапка, строки (защита от формул), фильтр и ширина столбцов."""
-    worksheet.append(headers)
-
-    for cell in worksheet[1]:
-        cell.font = Font(bold=True, color='FFFFFF')
-        cell.fill = PatternFill(fill_type='solid', fgColor='1F4E78')
-
-    for row in rows:
-        safe_row = []
-        for value in row:
-            if isinstance(value, str) and value.lstrip(' \t\r\n')[:1] in ('=', '+', '-', '@'):
-                value = "'" + value
-            safe_row.append(value)
-        worksheet.append(safe_row)
-
-    worksheet.freeze_panes = 'A2'
-    worksheet.auto_filter.ref = worksheet.dimensions
-    for column in worksheet.columns:
-        column_letter = column[0].column_letter
-        width = max((len(str(cell.value or '')) for cell in column), default=0)
-        worksheet.column_dimensions[column_letter].width = min(max(width + 2, 12), 60)
-
-
 def xlsx_response(filename, sheet_name, headers, rows, extra_sheets=()):
-    """
-    Сформировать XLSX-файл из заголовков и строк данных.
-    extra_sheets — дополнительные листы: [(название, заголовки, строки), ...].
-    """
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = sheet_name[:31]
-    _fill_sheet(worksheet, headers, rows)
-
-    for extra_name, extra_headers, extra_rows in extra_sheets:
-        _fill_sheet(workbook.create_sheet(extra_name[:31]), extra_headers, extra_rows)
-
     response = HttpResponse(
+        build_xlsx_bytes(sheet_name, headers, rows, extra_sheets),
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    workbook.save(response)
     return response
 
 
@@ -929,49 +864,11 @@ def export_excel_view(request, export_type):
     if export_type in {'department-load', 'teachers'}:
         if not is_head:
             return error_page(request, 'Экспорт кафедральных данных доступен только заведующему кафедрой.', 403)
-        try:
-            department = request.user.teacher.department
-        except Teacher.DoesNotExist:
+        department = department_of(request.user)
+        if not department:
             return error_page(request, 'Для вашей учётной записи не указана кафедра.', 404)
-
-        if export_type == 'department-load':
-            items = LoadItem.objects.filter(
-                discipline__department=department
-            ).select_related('discipline', 'group', 'teacher').order_by('discipline', 'kind')
-            rows = [
-                (
-                    item.discipline.name,
-                    item.get_kind_display(),
-                    item.group.name if item.group else 'Поток',
-                    item.subgroup_no or '',
-                    item.hours,
-                    item.teacher.full_name if item.teacher else ''
-                )
-                for item in items
-            ]
-            return xlsx_response(
-                'department_load.xlsx', 'Нагрузка кафедры',
-                ['Дисциплина', 'Вид работы', 'Группа', 'Подгруппа', 'Часы', 'Преподаватель'], rows
-            )
-
-        teachers = Teacher.objects.filter(department=department).select_related('position')
-        rows = [
-            (
-                teacher.full_name,
-                teacher.position.position if teacher.position else '',
-                teacher.get_degree_display(),
-                teacher.rank,
-                teacher.rate,
-                teacher.effective_min_hours,
-                teacher.effective_max_hours,
-                teacher_total(teacher)
-            )
-            for teacher in teachers
-        ]
-        return xlsx_response(
-            'department_teachers.xlsx', 'Преподаватели',
-            ['ФИО', 'Должность', 'Учёная степень', 'Звание', 'Ставка', 'Мин. часы', 'Макс. часы', 'Назначено часов'], rows
-        )
+        table = department_load_table(department) if export_type == 'department-load' else teachers_table(department)
+        return xlsx_response(*table)
 
     if export_type in {'workload', 'journal'}:
         if not is_teacher:
@@ -980,56 +877,8 @@ def export_excel_view(request, export_type):
             teacher = request.user.teacher
         except Teacher.DoesNotExist:
             return error_page(request, 'Вы не зарегистрированы как преподаватель.', 404)
-
-        if export_type == 'workload':
-            wl = teacher_workload(teacher)
-            kind_labels = [label for _, label in wl['kinds']]
-            cent = Decimal('0.01')
-            headers = ['Дисциплина', 'Семестр', 'Группы'] + kind_labels + ['Всего']
-            rows = []
-            for row in wl['rows']:
-                rows.append(
-                    [row['discipline'].name if row['discipline'] else '', row['semester'], row['groups']]
-                    + [h.quantize(cent) for h in row['hours_list']]
-                    + [row['total'].quantize(cent)]
-                )
-            # Итоговые строки
-            rows.append(
-                ['Всего за осенний семестр', '', '']
-                + [h.quantize(cent) for h in wl['fall_totals_list']]
-                + [wl['fall_totals_total'].quantize(cent)]
-            )
-            rows.append(
-                ['Всего за весенний семестр', '', '']
-                + [h.quantize(cent) for h in wl['spring_totals_list']]
-                + [wl['spring_totals_total'].quantize(cent)]
-            )
-            rows.append(
-                ['ИТОГО ЗА ГОД', '', '']
-                + [h.quantize(cent) for h in wl['grand_totals_list']]
-                + [wl['grand_totals_total'].quantize(cent)]
-            )
-            return xlsx_response('my_workload.xlsx', 'Моя нагрузка', headers, rows)
-
-        entries = JournalEntry.objects.filter(teacher=teacher).select_related(
-            'load_item__discipline', 'load_item__group'
-        ).order_by('-date', '-time')
-        rows = [
-            (
-                entry.date,
-                entry.time,
-                entry.load_item.discipline.name,
-                entry.load_item.get_kind_display(),
-                entry.load_item.group.name if entry.load_item.group else 'Поток',
-                entry.hours,
-                entry.topic
-            )
-            for entry in entries
-        ]
-        return xlsx_response(
-            'my_journal.xlsx', 'Журнал',
-            ['Дата', 'Время', 'Дисциплина', 'Вид работы', 'Группа', 'Часы', 'Тема'], rows
-        )
+        table = workload_table(teacher) if export_type == 'workload' else journal_table(teacher)
+        return xlsx_response(*table)
 
     if not (is_head or is_teacher or has_role(request.user, 'deputy_dean') or request.user.is_staff):
         return error_page(request, 'Отчёт доступен преподавателям, заведующим кафедрой и деканату.', 403)
@@ -1045,45 +894,9 @@ def export_excel_view(request, export_type):
     except (TypeError, ValueError):
         return error_page(request, 'Укажите корректный год отчёта.', 400)
 
-    matrix = report_matrix([teacher] if teacher else teachers, year)
-    cent = Decimal('0.01')
+    table = report_tables([teacher] if teacher else teachers, year, teacher is not None)
+    return xlsx_response(*table)
 
-    def matrix_rows(field):
-        rows = [
-            [row['name']]
-            + [cell[field].quantize(cent) for cell in row['cells']]
-            + [row['total'][field].quantize(cent)]
-            for row in matrix['rows']
-        ]
-        rows.append(
-            ['Итого за год']
-            + [cell[field].quantize(cent) for cell in matrix['totals']['cells']]
-            + [matrix['totals']['total'][field].quantize(cent)]
-        )
-        return rows
-
-    headers = ['Месяц'] + [label for _, label in matrix['kinds']] + ['Всего']
-    adjustment_rows = [
-        [
-            MONTH_NAMES[item['month'] - 1], item['teacher'], item['discipline'], item['kind'],
-            item['hours'], 'Плановая' if item['planned'] else 'Внеплановая', item['reason']
-        ]
-        for item in matrix['adjustments']
-    ]
-    filename = f'workload_report_{year}.xlsx' if teacher else f'department_report_{year}.xlsx'
-    return xlsx_response(
-        filename, 'Факт', headers, matrix_rows('fact'),
-        extra_sheets=[
-            ('План', headers, matrix_rows('plan')),
-            ('Отклонение', headers, matrix_rows('delta')),
-            ('Корректировки',
-             ['Месяц', 'Преподаватель', 'Дисциплина', 'Вид работы', 'Часы', 'Тип', 'Причина'],
-             adjustment_rows),
-        ]
-    )
-
-
-# ============ ДЕКАНАТ (интерфейс зам. декана) ============
 
 def _require_deputy_dean(request):
     """Проверка прав: только зам. декана или администратор."""

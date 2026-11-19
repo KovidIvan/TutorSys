@@ -30,6 +30,7 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto ms-lg-4">
                     {% if user.is_authenticated %}
+                        <li class="nav-item"><a class="nav-link" href="{% url 'core:telegram_account' %}">Telegram</a></li>
                         {% if is_deputy_dean %}
                             <li class="nav-item"><a class="nav-link" href="{% url 'core:dean_dashboard' %}">Деканат</a></li>
                             <li class="nav-item"><a class="nav-link" href="{% url 'core:specialties' %}">Специальности</a></li>

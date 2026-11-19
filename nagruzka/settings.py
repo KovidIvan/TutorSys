@@ -10,6 +10,16 @@ load_dotenv(BASE_DIR / '.env')
 
 SECRET_KEY = os.getenv('SECRET_KEY') or secrets.token_urlsafe(50)
 DEBUG = os.getenv('DEBUG', 'True').strip().lower() in {'true', '1', 'yes'}
+USE_HTTPS = os.getenv('USE_HTTPS', 'False').strip().lower() in {'true', '1', 'yes'}
+SITE_URL = os.getenv('SITE_URL', '').strip().rstrip('/')
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
+TELEGRAM_BOT_USERNAME = os.getenv('TELEGRAM_BOT_USERNAME', '').strip().lstrip('@')
+TELEGRAM_OUTBOX_POLL_SECONDS = max(1, int(os.getenv('TELEGRAM_OUTBOX_POLL_SECONDS', '5')))
+TELEGRAM_PRIVACY_MODE = os.getenv('TELEGRAM_PRIVACY_MODE', 'full').strip().lower()
+if TELEGRAM_PRIVACY_MODE not in {'full', 'masked', 'minimal'}:
+    raise ValueError('TELEGRAM_PRIVACY_MODE must be full, masked, or minimal')
+TELEGRAM_REQUIRE_CONSENT = os.getenv('TELEGRAM_REQUIRE_CONSENT', 'True').strip().lower() in {'true', '1', 'yes'}
+TELEGRAM_OUTBOX_KEEP_DAYS = max(1, int(os.getenv('TELEGRAM_OUTBOX_KEEP_DAYS', '7')))
 ALLOWED_HOSTS = [host.strip() for host in os.getenv(
     'ALLOWED_HOSTS', 'localhost,127.0.0.1,testserver'
 ).split(',') if host.strip()]
@@ -81,8 +91,17 @@ else:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': Path(os.getenv('SQLITE_PATH', BASE_DIR / 'db.sqlite3')),
+            'OPTIONS': {'timeout': 20},
         }
     }
+
+if DATABASES['default']['ENGINE'] == 'django.db.backends.sqlite3':
+    DATABASES['default'].setdefault('OPTIONS', {})['timeout'] = 20
+
+if USE_HTTPS:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
