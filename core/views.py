@@ -25,7 +25,7 @@ from .models import (
 from .telegram_utils import verify_telegram_webapp_data
 from .forms import SpecialtyForm, DepartmentForm, GroupForm, CurriculumForm, DisciplineForm
 from .calculations import (
-    recalculate_department, check_teacher, teacher_total, teacher_workload,
+    recalculate_department, auto_assign_department_load, check_teacher, teacher_total, teacher_workload,
     report_matrix, MONTH_NAMES, REPORT_TOLERANCE
 )
 from .importers import WorkloadImportError, import_workload_xlsx
@@ -183,7 +183,7 @@ def settings_view(request):
                     messages.success(
                         request,
                         f'Нагрузка успешно пересчитана только для кафедры «{dept.name}». '
-                        'Назначенные преподаватели сохранены.'
+                        'Преподаватели автоматически подобраны по специализации, нормам лекций и лимитам часов.'
                     )
                 elif has_role(request.user, 'deputy_dean'):
                     dept_id = request.POST.get('department_id')
@@ -192,7 +192,7 @@ def settings_view(request):
                         recalculate_department(dept, settings)
                         messages.success(
                             request,
-                            f'Нагрузка пересчитана для кафедры «{dept.name}».'
+                            f'Нагрузка пересчитана и распределена по специализации для кафедры «{dept.name}».'
                         )
                     else:
                         departments = Department.objects.all()
@@ -200,8 +200,7 @@ def settings_view(request):
                             recalculate_department(dept, settings)
                         messages.success(
                             request,
-                            f'Нагрузка пересчитана для всех кафедр ({departments.count()}). '
-                            'Назначенные преподаватели сохранены.'
+                            f'Нагрузка пересчитана и распределена для всех кафедр ({departments.count()}).'
                         )
             except Exception as e:
                 messages.error(request, f'Ошибка при пересчёте: {e}')
@@ -471,7 +470,11 @@ def teachers_view(request):
             form = TeacherForm(request.POST, instance=instance, department=department)
             if form.is_valid():
                 teacher = form.save()
-                messages.success(request, f'Преподаватель «{teacher.full_name}» сохранён.')
+                auto_assign_department_load(department)
+                messages.success(
+                    request,
+                    f'Преподаватель «{teacher.full_name}» сохранён, нагрузка кафедры автоматически подобрана по специализации и нормам.'
+                )
                 return redirect('core:teachers')
         else:
             return error_page(request, 'Неизвестное действие.', 400)
@@ -563,8 +566,8 @@ def distribution_view(request):
             recalculate_department(user_department, settings)
             messages.success(
                 request,
-                f'Нагрузка успешно пересчитана только для кафедры «{user_department.name}». '
-                'Назначения преподавателей сохранены.'
+                f'Нагрузка успешно пересчитана для кафедры «{user_department.name}». '
+                'Преподаватели автоматически подобраны по специализации, нормам лекций и часам.'
             )
             return redirect('core:distribution')
 

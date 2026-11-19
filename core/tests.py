@@ -1551,3 +1551,34 @@ class DeputyDeanUITestCase(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertFalse(Adjustment.objects.filter(hours_delta=Decimal('-1.5')).exists())
 
+    def test_auto_assign_on_recalculate_respects_specialization_lecture_rules_and_limits(self):
+        pos_docent = PositionRule.objects.create(
+            position='ДоцентАвто', min_hours=840, max_hours=900, min_lecture_hours=100, can_lecture=True
+        )
+        pos_assist = PositionRule.objects.create(
+            position='АссистентАвто', min_hours=840, max_hours=900, min_lecture_hours=0, can_lecture=False
+        )
+
+        u_doc = User.objects.create_user('doc_auto', password='pass')
+        t_doc = Teacher.objects.create(
+            user=u_doc, full_name='Доцент Спец', department=self.dept, position=pos_docent, rate=Decimal('1.0')
+        )
+        t_doc.specialization.add(self.discipline)
+
+        u_ass = User.objects.create_user('ass_auto', password='pass')
+        t_ass = Teacher.objects.create(
+            user=u_ass, full_name='Ассистент Спец', department=self.dept, position=pos_assist, rate=Decimal('1.0')
+        )
+        t_ass.specialization.add(self.discipline)
+
+        # Назначим заведомо некорректно лекцию ассистенту (can_lecture=False)
+        self.load_item.teacher = t_ass
+        self.load_item.save()
+
+        recalculate_department(self.dept, CalcSettings.get())
+
+        lec_item = LoadItem.objects.filter(discipline=self.discipline, kind='lec').first()
+        self.assertIsNotNone(lec_item)
+        # Лекция должна быть автоматически снята с ассистента и передана доценту с правом лекций и специализацией
+        self.assertEqual(lec_item.teacher, t_doc)
+

@@ -141,15 +141,171 @@ def calc_department_load(discipline: Discipline, settings: CalcSettings) -> List
     return load_items
 
 
-def recalculate_department(department, settings: CalcSettings):
+def auto_assign_department_load(department) -> int:
     """
-    Пересчитать нагрузку всех дисциплин кафедры.
+    Автоматически подобрать и назначить преподавателей кафедры на элементы нагрузки (LoadItem)
+    с учётом их специализации, должности (права вести лекции и минимума лекционных часов),
+    индивидуальной нормы часов (effective_min_hours / effective_max_hours) и ставки.
+
+    Правила:
+    1. Если у преподавателя задана непустая специализация, но текущая дисциплина элемента нагрузки
+       в неё больше не входит, либо преподавателю назначена лекция при can_lecture=False,
+       такое некорректное назначение снимается для перераспределения.
+    2. Сначала распределяются нераспределённые ЛЕКЦИИ ('lec') между преподавателями,
+       у которых дисциплина входит в специализацию и должность разрешает лекции (can_lecture=True),
+       с приоритетом тем, у кого ещё не выполнен минимум лекционных часов (min_lecture_hours * rate)
+       и кто не превышает свой максимум часов (effective_max_hours).
+    3. Затем распределяются остальные виды работ ('pract', 'lab', 'exam', 'credit', 'usr', 'kr')
+       между профильными преподавателями (в рамках их специализации), у которых ещё не набран
+       минимум (effective_min_hours) и не превышен максимум (effective_max_hours), выбирая
+       наименее загруженного относительно его нормы.
+
+    Возвращает количество автоматически назначенных элементов нагрузки.
+    """
+    teachers = list(
+        Teacher.objects.filter(department=department)
+        .select_related('position')
+        .prefetch_related('specialization')
+    )
+    if not teachers:
+        return 0
+
+    spec_map = {
+        t.id: {d.id for d in t.specialization.all()}
+        for t in teachers
+    }
+
+    items = list(
+        LoadItem.objects.filter(discipline__department=department)
+        .select_related('discipline', 'teacher')
+        .order_by('discipline__semester', 'discipline__name', 'kind', 'id')
+    )
+
+    # Шаг 1. Снять назначения, которые противоречат обновлённой специализации или запрету на лекции
+    for item in items:
+        if item.teacher_id is None:
+            continue
+        t_specs = spec_map.get(item.teacher_id)
+        t_obj = next((t for t in teachers if t.id == item.teacher_id), None)
+        if t_obj is None:
+            continue
+        invalid_lecture = (
+            item.kind == 'lec'
+            and (not t_obj.position or not t_obj.position.can_lecture)
+        )
+        # Если у преподавателя явно выбраны дисциплины специализации и данная дисциплина туда не входит
+        invalid_spec = bool(t_specs) and (item.discipline_id not in t_specs)
+        if invalid_lecture or invalid_spec:
+            item.teacher = None
+            item.save(update_fields=['teacher'])
+
+    # Подсчёт текущих часов и лекционных часов каждого преподавателя
+    total_hours = {t.id: Decimal('0') for t in teachers}
+    lecture_hours = {t.id: Decimal('0') for t in teachers}
+    for item in items:
+        if item.teacher_id in total_hours:
+            total_hours[item.teacher_id] += item.hours
+            if item.kind == 'lec':
+                lecture_hours[item.teacher_id] += item.hours
+
+    def can_take(t: Teacher, item: LoadItem, allow_over_max: bool = False) -> bool:
+        # Проверка специализации: назначаем только тем, у кого дисциплина входит в специализацию
+        if item.discipline_id not in spec_map.get(t.id, set()):
+            return False
+        # Проверка права на чтение лекций
+        if item.kind == 'lec' and (not t.position or not t.position.can_lecture):
+            return False
+        # Проверка лимита максимальных часов
+        if not allow_over_max:
+            max_h = Decimal(str(t.effective_max_hours))
+            if total_hours[t.id] + item.hours > max_h:
+                return False
+        return True
+
+    def min_lec_target(t: Teacher) -> Decimal:
+        if t.position and t.position.can_lecture:
+            return Decimal(str(t.position.min_lecture_hours)) * t.rate
+        return Decimal('0')
+
+    assigned_count = 0
+
+    # Шаг 2. Распределяем нераспределённые ЛЕКЦИИ ('lec')
+    unassigned_lectures = [i for i in items if i.teacher_id is None and i.kind == 'lec']
+    for item in unassigned_lectures:
+        candidates = [t for t in teachers if can_take(t, item, allow_over_max=False)]
+        if not candidates:
+            candidates = [t for t in teachers if can_take(t, item, allow_over_max=True)]
+        if not candidates:
+            continue
+
+        # Приоритет:
+        # 1) у кого ещё не выполнен норматив лекций (lecture_hours < min_lec_target)
+        # 2) наибольший дефицит лекционных часов
+        # 3) наименьшая общая загрузка относительно effective_min_hours
+        def lecture_sort_key(t: Teacher):
+            lec_deficit = max(Decimal('0'), min_lec_target(t) - lecture_hours[t.id])
+            min_h = max(Decimal('1'), Decimal(str(t.effective_min_hours)))
+            load_ratio = total_hours[t.id] / min_h
+            return (
+                0 if lec_deficit > 0 else 1,
+                -lec_deficit,
+                load_ratio,
+                t.id,
+            )
+
+        chosen = min(candidates, key=lecture_sort_key)
+        item.teacher = chosen
+        item.save(update_fields=['teacher'])
+        total_hours[chosen.id] += item.hours
+        lecture_hours[chosen.id] += item.hours
+        assigned_count += 1
+
+    # Шаг 3. Распределяем остальные нераспределённые элементы нагрузки
+    unassigned_other = [i for i in items if i.teacher_id is None and i.kind != 'lec']
+    for item in unassigned_other:
+        candidates = [t for t in teachers if can_take(t, item, allow_over_max=False)]
+        if not candidates:
+            candidates = [t for t in teachers if can_take(t, item, allow_over_max=True)]
+        if not candidates:
+            continue
+
+        # Приоритет:
+        # 1) кто ещё не набрал свой минимум часов (total_hours < effective_min_hours)
+        # 2) наименьшая доля заполнения нормы (total_hours / effective_min_hours)
+        # 3) наибольший запас до effective_max_hours
+        def general_sort_key(t: Teacher):
+            min_h = max(Decimal('1'), Decimal(str(t.effective_min_hours)))
+            max_h = Decimal(str(t.effective_max_hours))
+            below_min = 0 if total_hours[t.id] < min_h else 1
+            load_ratio = total_hours[t.id] / min_h
+            headroom = max_h - (total_hours[t.id] + item.hours)
+            return (
+                below_min,
+                load_ratio,
+                -headroom,
+                t.id,
+            )
+
+        chosen = min(candidates, key=general_sort_key)
+        item.teacher = chosen
+        item.save(update_fields=['teacher'])
+        total_hours[chosen.id] += item.hours
+        assigned_count += 1
+
+    return assigned_count
+
+
+def recalculate_department(department, settings: CalcSettings, auto_assign: bool = True):
+    """
+    Пересчитать нагрузку всех дисциплин кафедры и автоматически подобрать преподавателей
+    по их специализации, нормам лекций и лимитам часов по должности.
 
     Логика:
     - Для каждой дисциплины кафедры вычислить новые элементы нагрузки
     - Элементы с тем же (discipline, kind, group, subgroup_no) обновить только hours
-    - Назначенный преподаватель сохраняется
+    - Назначенный преподаватель сохраняется (если не противоречит специализации и правам на лекции)
     - Новые элементы создаются, лишние удаляются (кроме тех, с записями в журнале)
+    - При auto_assign=True запускается автоподбор преподавателей по специализации и нормативам
     """
     disciplines = Discipline.objects.filter(department=department)
 
@@ -208,6 +364,9 @@ def recalculate_department(department, settings: CalcSettings):
                 # Проверить, есть ли записи журнала
                 if not JournalEntry.objects.filter(load_item=item).exists():
                     item.delete()
+
+    if auto_assign:
+        auto_assign_department_load(department)
 
 
 # ============ ПРОВЕРКА НАГРУЗКИ ПРЕПОДАВАТЕЛЯ ============
