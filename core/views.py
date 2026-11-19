@@ -321,9 +321,68 @@ def data_import_view(request):
         'academic_year': academic_year,
         'selected_department': selected_department,
         'new_department_name': new_department_name,
+        'db_stats': {
+            'specialties': Specialty.objects.count(),
+            'groups': AcademicGroup.objects.count(),
+            'curricula': Curriculum.objects.count(),
+            'disciplines': Discipline.objects.count(),
+            'load_items': LoadItem.objects.count(),
+            'journal_entries': JournalEntry.objects.count(),
+            'adjustments': Adjustment.objects.count(),
+            'empty_departments': Department.objects.filter(teachers__isnull=True).count(),
+        },
     }
     context = add_role_context(context, request)
     return render(request, 'core/data_import.html', context)
+
+
+@login_required
+@require_http_methods(['POST'])
+def clear_academic_data_view(request):
+    """
+    Очистить учебные данные из базы перед импортом нового Excel-файла.
+    Сохраняет учётные записи, преподавателей, кафедры с сотрудниками,
+    привязки Telegram и настройки расчёта (CalcSettings, PositionRule).
+    Доступ: только заместитель декана или администратор.
+    """
+    if not (has_role(request.user, 'deputy_dean') or request.user.is_staff):
+        return error_page(request, 'Очищать учебные данные может только зам. декана или администратор.', 403)
+
+    if request.POST.get('confirm_clear') != '1':
+        messages.warning(request, 'Подтвердите очистку, отметив галочку перед нажатием кнопки.')
+        return redirect('core:data_import')
+
+    with transaction.atomic():
+        counts = {
+            'adjustments': Adjustment.objects.count(),
+            'journal_entries': JournalEntry.objects.count(),
+            'load_items': LoadItem.objects.count(),
+            'disciplines': Discipline.objects.count(),
+            'curricula': Curriculum.objects.count(),
+            'groups': AcademicGroup.objects.count(),
+            'specialties': Specialty.objects.count(),
+        }
+        Adjustment.objects.all().delete()
+        JournalEntry.objects.all().delete()
+        LoadItem.objects.all().delete()
+        Discipline.objects.all().delete()
+        Curriculum.objects.all().delete()
+        AcademicGroup.objects.all().delete()
+        Specialty.objects.all().delete()
+
+        empty_depts_qs = Department.objects.filter(teachers__isnull=True)
+        counts['empty_departments'] = empty_depts_qs.count()
+        empty_depts_qs.delete()
+
+    messages.success(
+        request,
+        'Учебные данные очищены: '
+        f"специальностей — {counts['specialties']}, групп — {counts['groups']}, "
+        f"учебных планов — {counts['curricula']}, дисциплин — {counts['disciplines']}, "
+        f"элементов нагрузки — {counts['load_items']}, записей журнала — {counts['journal_entries']}. "
+        'Учётные записи, преподаватели и параметры расчёта сохранены — можно импортировать новый Excel-файл.'
+    )
+    return redirect('core:data_import')
 
 
 # ============ ПРЕПОДАВАТЕЛИ (зав. кафедрой) ============

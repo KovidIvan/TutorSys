@@ -19,6 +19,7 @@ urlpatterns = [
     # Параметры расчёта и импорт исходных данных
     path('settings/', views.settings_view, name='settings'),
     path('data-import/', views.data_import_view, name='data_import'),
+    path('data-import/clear/', views.clear_academic_data_view, name='clear_academic_data'),
 
     # Распределение нагрузки
     path('distribution/', views.distribution_view, name='distribution'),

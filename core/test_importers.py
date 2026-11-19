@@ -203,3 +203,55 @@ class WorkloadImportViewTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Импорт учебных данных из Excel')
+
+    def test_deputy_dean_can_clear_academic_data_and_reimport(self):
+        from core.models import Teacher, PositionRule
+
+        pos = PositionRule.objects.create(
+            position='Доцент', min_hours=840, max_hours=900, min_lecture_hours=100, can_lecture=True
+        )
+        t_user = User.objects.create_user(username='keep_teacher', password='pass')
+        teacher = Teacher.objects.create(
+            user=t_user, full_name='Иванов И.И.', department=self.department, position=pos
+        )
+        Department.objects.create(name='Пустая кафедра')
+
+        self.assertEqual(self.import_file(self.make_workbook()).status_code, 302)
+        self.assertTrue(Specialty.objects.exists())
+        self.assertTrue(Discipline.objects.exists())
+        self.assertTrue(LoadItem.objects.exists())
+
+        # Без галочки подтверждения данные не удаляются
+        resp_no_confirm = self.client.post('/data-import/clear/', {})
+        self.assertEqual(resp_no_confirm.status_code, 302)
+        self.assertTrue(Discipline.objects.exists())
+
+        # С подтверждением учебные данные и пустые кафедры очищаются, а преподаватели и их кафедры сохраняются
+        resp_clear = self.client.post('/data-import/clear/', {'confirm_clear': '1'})
+        self.assertEqual(resp_clear.status_code, 302)
+        self.assertFalse(Specialty.objects.exists())
+        self.assertFalse(Group.objects.exists())
+        self.assertFalse(Curriculum.objects.exists())
+        self.assertFalse(Discipline.objects.exists())
+        self.assertFalse(LoadItem.objects.exists())
+        self.assertFalse(Department.objects.filter(name='Пустая кафедра').exists())
+        self.assertTrue(Department.objects.filter(pk=self.department.pk).exists())
+        self.assertTrue(Teacher.objects.filter(pk=teacher.pk).exists())
+        self.assertTrue(User.objects.filter(pk=t_user.pk).exists())
+
+        # После очистки можно сразу загрузить новый Excel-файл
+        resp_reimport = self.import_file(self.make_workbook())
+        self.assertEqual(resp_reimport.status_code, 302)
+        self.assertEqual(Discipline.objects.count(), 2)
+
+    def test_teacher_cannot_clear_academic_data(self):
+        self.assertEqual(self.import_file(self.make_workbook()).status_code, 302)
+
+        teacher_group, _ = AuthGroup.objects.get_or_create(name='teacher')
+        t_user = User.objects.create_user(username='teacher_no_clear', password='pass')
+        t_user.groups.add(teacher_group)
+        self.client.force_login(t_user)
+
+        resp = self.client.post('/data-import/clear/', {'confirm_clear': '1'})
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(Discipline.objects.exists())

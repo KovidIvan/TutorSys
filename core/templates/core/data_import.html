@@ -44,10 +44,41 @@
                 </form>
             </div>
         </div>
-        <div class="card">
+        <div class="card mb-4">
             <div class="card-header"><h5 class="mb-0">Поддерживаемые поля таблицы</h5></div>
             <div class="card-body">
                 <p class="mb-0">Название дисциплины, код специальности, курс, семестр, форма обучения, число студентов и групп, подгруппы, плановые часы лекций, практик и лабораторных, число контрольных работ, УСР, экзамен и зачёт.</p>
+            </div>
+        </div>
+
+        <div class="card border-danger" id="clear-db-section">
+            <div class="card-header bg-danger bg-opacity-10 text-danger">
+                <h5 class="mb-0">Очистка базы учебных данных перед новым импортом</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-2">
+                    Если нужно загрузить другой файл Excel с нуля, очистите текущие учебные данные.
+                    Будут удалены: <strong>специальности ({{ db_stats.specialties }})</strong>,
+                    <strong>группы ({{ db_stats.groups }})</strong>,
+                    <strong>учебные планы ({{ db_stats.curricula }})</strong>,
+                    <strong>дисциплины ({{ db_stats.disciplines }})</strong>,
+                    <strong>элементы нагрузки ({{ db_stats.load_items }})</strong>,
+                    <strong>записи журнала ({{ db_stats.journal_entries }})</strong>
+                    и корректировки ({{ db_stats.adjustments }}){% if db_stats.empty_departments %}, а также пустые кафедры без преподавателей ({{ db_stats.empty_departments }}){% endif %}.
+                </p>
+                <p class="text-muted small mb-3">
+                    Учётные записи пользователей, преподаватели, кафедры с сотрудниками, привязки Telegram и нормативы расчёта сохранятся.
+                </p>
+                <form method="post" action="{% url 'core:clear_academic_data' %}" onsubmit="return confirm('Вы действительно хотите удалить все учебные планы, группы, дисциплины и нагрузку из базы данных? Это действие нельзя отменить.');">
+                    {% csrf_token %}
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" value="1" id="confirm-clear-db" name="confirm_clear" required>
+                        <label class="form-check-label" for="confirm-clear-db">
+                            Подтверждаю полную очистку учебных данных для импорта нового файла
+                        </label>
+                    </div>
+                    <button class="btn btn-danger" type="submit">Очистить учебные данные</button>
+                </form>
             </div>
         </div>
     </div>

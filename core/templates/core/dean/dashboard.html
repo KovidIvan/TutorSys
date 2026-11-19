@@ -135,11 +135,16 @@
                 <div class="mb-4">
                     <h6>Импорт данных из Excel</h6>
                     <p class="text-muted small">
-                        Быстрая загрузка учебных поручений, дисциплин и групп из файла Excel (.xlsx).
+                        Быстрая загрузка учебных поручений, дисциплин и групп из файла Excel (.xlsx), а также очистка текущих учебных данных перед новым импортом.
                     </p>
-                    <a href="{% url 'core:data_import' %}" class="btn btn-outline-primary">
-                        Перейти к импорту данных →
-                    </a>
+                    <div class="d-flex flex-wrap gap-2">
+                        <a href="{% url 'core:data_import' %}" class="btn btn-outline-primary">
+                            Перейти к импорту данных →
+                        </a>
+                        <a href="{% url 'core:data_import' %}#clear-db-section" class="btn btn-outline-danger">
+                            Очистить учебные данные
+                        </a>
+                    </div>
                 </div>
 
                 <hr>
