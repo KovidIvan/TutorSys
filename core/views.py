@@ -3,7 +3,7 @@
 """
 
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import logout, views as auth_views
+from django.contrib.auth import authenticate, login, logout, views as auth_views
 from django.contrib.auth.decorators import login_required
 from django import forms
 from django.contrib import messages
@@ -20,8 +20,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from .models import (
     CalcSettings, PositionRule, Discipline, Department, Teacher, LoadItem, JournalEntry,
-    Adjustment, Specialty, Curriculum, Group as AcademicGroup
+    Adjustment, Specialty, Curriculum, Group as AcademicGroup, TelegramProfile
 )
+from .telegram_utils import verify_telegram_webapp_data
 from .forms import SpecialtyForm, DepartmentForm, GroupForm, CurriculumForm, DisciplineForm
 from .calculations import (
     recalculate_department, check_teacher, teacher_total, teacher_workload,
@@ -1348,6 +1349,85 @@ def disciplines_view(request):
         'editing': editing,
     }, request)
     return render(request, 'core/dean/disciplines.html', context)
+
+
+# ============ TELEGRAM MINI APP (WEBAPP) ============
+
+def telegram_webapp_view(request):
+    """
+    Точка входа для Telegram Mini App (WebApp), открываемого прямо внутри чата.
+    Проверяет криптографическую подпись initData от Telegram и автоматически
+    авторизует привязанного пользователя или позволяет привязать аккаунт.
+    """
+    error_msg = None
+    tg_user_info = None
+
+    if request.method == 'POST':
+        init_data = request.POST.get('init_data', '').strip()
+        action = request.POST.get('action', 'auth')
+        verified = verify_telegram_webapp_data(init_data)
+
+        if not verified or not isinstance(verified.get('user'), dict):
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return JsonResponse({'ok': False, 'error': 'Неверная или устаревшая подпись Telegram initData.'}, status=403)
+            error_msg = 'Не удалось подтвердить подпись Telegram Mini App. Откройте приложение напрямую через кнопку в чате бота.'
+        else:
+            tg_user = verified['user']
+            tg_id = tg_user.get('id')
+            tg_username = tg_user.get('username', '') or ''
+            tg_first_name = tg_user.get('first_name', '') or ''
+            tg_user_info = tg_user
+
+            if action == 'link':
+                username = request.POST.get('username', '').strip()
+                password = request.POST.get('password', '')
+                user = authenticate(request, username=username, password=password)
+                if user is not None:
+                    TelegramProfile.objects.update_or_create(
+                        user=user,
+                        defaults={
+                            'telegram_id': tg_id,
+                            'telegram_username': tg_username,
+                            'first_name': tg_first_name,
+                        }
+                    )
+                    login(request, user)
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                        return JsonResponse({'ok': True, 'redirect': '/'})
+                    return redirect('/')
+                else:
+                    error_msg = 'Неверный логин или пароль учётной записи S.C.A.L.E.'
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                        return JsonResponse({'ok': False, 'need_link': True, 'error': error_msg}, status=401)
+            else:
+                profile = TelegramProfile.objects.filter(telegram_id=tg_id).select_related('user').first()
+                if profile:
+                    if profile.telegram_username != tg_username or profile.first_name != tg_first_name:
+                        profile.telegram_username = tg_username
+                        profile.first_name = tg_first_name
+                        profile.save(update_fields=['telegram_username', 'first_name'])
+                    login(request, profile.user)
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                        return JsonResponse({'ok': True, 'redirect': '/'})
+                    return redirect('/')
+                else:
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                        return JsonResponse({
+                            'ok': False,
+                            'need_link': True,
+                            'tg_user': {
+                                'id': tg_id,
+                                'username': tg_username,
+                                'first_name': tg_first_name,
+                            }
+                        })
+
+    context = add_role_context({
+        'error_msg': error_msg,
+        'tg_user_info': tg_user_info,
+    }, request)
+    return render(request, 'core/telegram_webapp.html', context)
+
 
 
 

@@ -2,7 +2,8 @@ from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
     Specialty, Department, Group, Curriculum, Discipline,
-    CalcSettings, PositionRule, Teacher, LoadItem, JournalEntry, Adjustment
+    CalcSettings, PositionRule, Teacher, LoadItem, JournalEntry, Adjustment,
+    TelegramProfile
 )
 
 
@@ -290,3 +291,12 @@ class AdjustmentAdmin(admin.ModelAdmin):
         """Показать первые 40 символов причины."""
         return obj.reason[:40] + '...' if len(obj.reason) > 40 else obj.reason
     reason_short.short_description = 'Причина'
+
+
+# ============ ПРОФИЛИ TELEGRAM ============
+
+@admin.register(TelegramProfile)
+class TelegramProfileAdmin(admin.ModelAdmin):
+    list_display = ['user', 'telegram_id', 'telegram_username', 'first_name', 'linked_at']
+    search_fields = ['user__username', 'user__first_name', 'telegram_username', 'telegram_id']
+    raw_id_fields = ['user']

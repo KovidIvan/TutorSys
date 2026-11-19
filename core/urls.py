@@ -37,4 +37,7 @@ urlpatterns = [
 
     # Экспорт в Excel
     path('export/<str:export_type>/', views.export_excel_view, name='export_excel'),
+
+    # Telegram Mini App (WebApp внутри чата)
+    path('telegram/webapp/', views.telegram_webapp_view, name='telegram_webapp'),
 ]

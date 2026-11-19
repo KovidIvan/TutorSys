@@ -9,6 +9,8 @@ services:
       - DEBUG=${DEBUG:-True}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
       - SQLITE_PATH=/app/data/db.sqlite3
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_WEBAPP_URL=${TELEGRAM_WEBAPP_URL:-}
     volumes:
       - scale_data:/app/data
 

@@ -586,3 +586,39 @@ class Adjustment(models.Model):
 
     def __str__(self):
         return f'{self.teacher} — {self.discipline.name} ({self.get_kind_display()}) на {self.month} мес.'
+
+
+class TelegramProfile(models.Model):
+    """Привязка учётной записи пользователя Django к аккаунту Telegram."""
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        verbose_name='Пользователь Django',
+        related_name='telegram_profile'
+    )
+    telegram_id = models.BigIntegerField(
+        unique=True,
+        verbose_name='Telegram ID'
+    )
+    telegram_username = models.CharField(
+        max_length=150,
+        blank=True,
+        verbose_name='Имя пользователя Telegram (@username)'
+    )
+    first_name = models.CharField(
+        max_length=150,
+        blank=True,
+        verbose_name='Имя в Telegram'
+    )
+    linked_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата привязки'
+    )
+
+    class Meta:
+        verbose_name = 'Профиль Telegram'
+        verbose_name_plural = 'Профили Telegram'
+
+    def __str__(self):
+        uname = f' (@{self.telegram_username})' if self.telegram_username else ''
+        return f'{self.user.username} ↔ TG {self.telegram_id}{uname}'

@@ -9,6 +9,7 @@
 
     <link href="{% static 'core/vendor/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'core/theme.css' %}?v=7" rel="stylesheet">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="{% static 'core/vendor/htmx.min.js' %}" defer></script>
 
     <style>
@@ -120,6 +121,14 @@
     </footer>
 
     <script src="{% static 'core/vendor/bootstrap.bundle.min.js' %}"></script>
+    <script>
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) {
+            const tgApp = window.Telegram.WebApp;
+            tgApp.ready();
+            tgApp.expand();
+            try { tgApp.setHeaderColor('#050b1a'); tgApp.setBackgroundColor('#050b1a'); } catch (e) {}
+        }
+    </script>
 
     {% block extra_js %}{% endblock %}
 </body>
