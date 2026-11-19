@@ -21,7 +21,7 @@
     --bs-body-color: var(--ink);
 }
 
-html { min-height: 100%; }
+html { min-height: 100%; overflow-x: clip; }
 
 body, input, select, textarea, button, table, th, td {
     font-family: var(--sans);
@@ -30,6 +30,7 @@ body, input, select, textarea, button, table, th, td {
 body {
     color: var(--ink);
     min-height: 100vh;
+    overflow-x: clip;
     background-color: var(--navy-950);
     background-image: url("img/aurora.svg");
     background-size: cover;
@@ -475,4 +476,160 @@ thead.sticky-top,
     .card, .modal-content { background: rgba(248, 250, 255, 0.94); }
     .login-card { background: rgba(15, 35, 71, 0.92); }
     .scale-nav { background: rgba(7, 17, 38, 0.94); }
+}
+
+/* ---------- Адаптация под мобильные устройства и Telegram Mini App ---------- */
+@media (max-width: 991.98px) {
+    .scale-nav {
+        margin: 8px 10px 0;
+        padding: 8px 14px;
+        border-radius: 14px;
+        top: 8px;
+    }
+    .scale-nav .navbar-collapse {
+        padding-top: 10px;
+    }
+    .scale-nav .navbar-nav {
+        gap: 2px;
+    }
+    .scale-nav .navbar-nav.ms-auto {
+        margin-top: 8px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(147, 197, 253, 0.16);
+        align-items: flex-start !important;
+        gap: 8px;
+    }
+    .scale-user {
+        display: inline-block;
+        margin-right: 0 !important;
+        line-height: 1.45;
+        overflow-wrap: break-word;
+    }
+    .scale-role {
+        display: inline-block;
+        margin-left: 4px;
+        margin-top: 2px;
+    }
+}
+
+@media (max-width: 767.98px) {
+    body {
+        background-attachment: scroll;
+    }
+    .scale-brand {
+        font-size: 1.2rem;
+        letter-spacing: 0.1em;
+        gap: 8px;
+    }
+    .scale-brand-logo {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+    }
+    .scale-brand small {
+        font-size: 0.48rem;
+        letter-spacing: 0.14em;
+    }
+
+    .container-main {
+        margin-top: 16px;
+        margin-bottom: 24px;
+    }
+    .container-main > .d-flex > div > h1,
+    .container-main > .d-flex > div > h2,
+    .container-main > .d-flex > div > .h3,
+    .container-main > .container-fluid > .d-flex h1 {
+        font-size: 1.35rem;
+        overflow-wrap: break-word;
+    }
+
+    .card {
+        border-radius: 14px;
+    }
+    .card-body {
+        padding: 1rem;
+    }
+    .card-header {
+        flex-wrap: wrap;
+        row-gap: 8px;
+    }
+    .table-responsive {
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Длинные выпадающие списки (кафедры, учебные планы) не выходят за пределы экрана */
+    .container-main .form-select.w-auto,
+    .container-main .form-select[style*="width: auto"] {
+        width: 100% !important;
+        max-width: 100%;
+    }
+    .container-main > .d-flex > form,
+    .container-main > .container-fluid > .d-flex > form {
+        width: 100%;
+    }
+
+    .scale-footer {
+        flex-wrap: wrap;
+        padding: 14px 12px 22px;
+        font-size: 0.72rem;
+        gap: 6px;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .login-body {
+        padding: 16px 12px;
+    }
+    .login-wrap {
+        max-width: 100%;
+    }
+    .login-card {
+        padding: 1.75rem 1.25rem 1.5rem;
+        border-radius: 20px;
+        overflow: hidden;
+    }
+    .login-card .login-brand-row {
+        gap: 10px;
+        max-width: 100%;
+    }
+    .login-card .login-brand-logo {
+        width: 42px;
+        height: 42px;
+        border-radius: 11px;
+    }
+    .login-card .logo {
+        font-size: clamp(1.65rem, 8.2vw, 2.35rem);
+        letter-spacing: 0.14em;
+        margin-right: -0.14em;
+        white-space: nowrap;
+    }
+    .login-card .tagline {
+        font-size: 0.6rem;
+        letter-spacing: 0.14em;
+        line-height: 1.45;
+        margin: 0.55rem 0 1.25rem;
+        overflow-wrap: break-word;
+    }
+    .login-card .rule {
+        margin-bottom: 1.25rem;
+    }
+}
+
+@media (max-width: 379.98px) {
+    .login-card {
+        padding: 1.45rem 1rem 1.25rem;
+    }
+    .login-card .login-brand-row {
+        gap: 8px;
+    }
+    .login-card .login-brand-logo {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+    }
+    .login-card .logo {
+        font-size: 1.5rem;
+        letter-spacing: 0.1em;
+        margin-right: -0.1em;
+    }
 }
