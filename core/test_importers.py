@@ -255,3 +255,47 @@ class WorkloadImportViewTestCase(TestCase):
         resp = self.client.post('/data-import/clear/', {'confirm_clear': '1'})
         self.assertEqual(resp.status_code, 403)
         self.assertTrue(Discipline.objects.exists())
+
+    def test_import_skips_duplicate_stream_lectures_and_merges_semester_zero(self):
+        from decimal import Decimal
+        wb = Workbook()
+        ws = wb.active
+        ws.append([
+            'Дисциплины (виды работ)', 'Спец-ть', 'Курс', 'Семестр', 'Форма обучения',
+            'Студентов', 'Потоков', 'Групп', 'Подгрупп',
+            'Лекции\n(по плану)', 'Лекции\n(всего)',
+            'Практические\n(по плану)', 'Лабораторные\n(по плану)',
+            'Кол-во КР', 'УСР', 'Экзамен', 'Зачёт',
+        ])
+        # Поток лекций на 2 специальности + 2 отдельные строки групп с пустыми Потоков / Лекции (всего)
+        ws.append(['Основы программирования', 'ПИнф, ПМ', 1, 1, 'д', 55, 1, 2, 4, 54, 54, None, None, None, None, None, None])
+        ws.append(['Основы программирования', 'ПМ', 1, 1, 'д', 24, None, 1, 2, 54, None, None, 56, 2, 22, 'у', None])
+        ws.append(['Основы программирования', 'ПИнф', 1, 1, 'д', 31, None, 1, 2, 54, None, None, 56, 2, 8, 'у', None])
+        # Заочники: Семестр=0 (6 ч лекций) + Семестр=1 (6 ч лаб + экзамен)
+        ws.append(['Алгоритмизация', 'ПИнж', 1, 0, 'з', 5, 1, 1, 1, 6, 6, None, None, None, None, None, None])
+        ws.append(['Алгоритмизация', 'ПИнж', 1, 1, 'з', 5, 1, 1, 1, None, None, None, 6, None, None, 'п', None])
+
+        buf = BytesIO()
+        wb.save(buf)
+        upload1 = SimpleUploadedFile('stream.xlsx', buf.getvalue())
+        self.assertEqual(self.import_file(upload1).status_code, 302)
+
+        # Лекции по «Основам программирования» учтены ровно 1 раз (54 ч), а не 3 раза (162 ч)
+        lec_items = list(LoadItem.objects.filter(
+            discipline__name='Основы программирования', kind='lec'
+        ).values_list('hours', flat=True))
+        self.assertEqual(lec_items, [Decimal('54.00')])
+
+        # У заочников объединились 6 ч лекций из Семестр=0 и 6 ч лаб + экзамен из Семестр=1
+        alg = Discipline.objects.get(name='Алгоритмизация')
+        self.assertEqual(alg.semester, 1)
+        self.assertEqual(alg.hours_lec, Decimal('6.0'))
+        self.assertEqual(alg.hours_lab, Decimal('6.0'))
+        self.assertEqual(alg.control_form, 'exam')
+
+        # Повторный импорт того же файла идемпотентен (часы не удваиваются)
+        upload2 = SimpleUploadedFile('stream.xlsx', buf.getvalue())
+        self.assertEqual(self.import_file(upload2).status_code, 302)
+        alg.refresh_from_db()
+        self.assertEqual(alg.hours_lec, Decimal('6.0'))
+        self.assertEqual(alg.hours_lab, Decimal('6.0'))

@@ -37,14 +37,20 @@
                     <tbody>
                         {% for spec in specialties %}
                             <tr {% if editing and editing.pk == spec.pk %}class="table-active"{% endif %}>
-                                <td class="fw-bold">{{ spec.code }}</td>
+                                <td class="fw-bold">
+                                    {% if spec.has_synthetic_code %}
+                                        <span class="text-muted fw-normal">—</span>
+                                    {% else %}
+                                        {{ spec.code }}
+                                    {% endif %}
+                                </td>
                                 <td>{{ spec.name }}</td>
                                 <td><span class="badge bg-secondary">{{ spec.abbr }}</span></td>
                                 <td class="text-center">{{ spec.groups.count }}</td>
-                                <td class="text-center">{{ spec.curriculum_set.count }}</td>
+                                <td class="text-center">{{ spec.curriculums.count }}</td>
                                 <td class="text-end text-nowrap">
                                     <a href="?edit={{ spec.pk }}" class="btn btn-sm btn-outline-primary">Изменить</a>
-                                    <form method="post" class="d-inline" onsubmit="return confirm('Удалить специальность «{{ spec.name|escapejs }}»?');">
+                                    <form method="post" class="d-inline" onsubmit="return confirm('Удалить специальность «{{ spec.display_name|escapejs }}»?');">
                                         {% csrf_token %}
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="specialty_id" value="{{ spec.pk }}">
@@ -68,7 +74,7 @@
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-white py-3">
                 <h5 class="card-title mb-0">
-                    {% if editing %}Редактирование: {{ editing.code }}{% else %}Добавить специальность{% endif %}
+                    {% if editing %}Редактирование: {{ editing.display_name }}{% else %}Добавить специальность{% endif %}
                 </h5>
             </div>
             <div class="card-body">

@@ -1599,3 +1599,90 @@ class DeputyDeanUITestCase(TestCase):
         lec_item.refresh_from_db()
         self.assertEqual(lec_item.teacher, t_new)
 
+    def test_synthetic_imp_codes_are_hidden_across_dean_pages(self):
+        imp_spec = Specialty.objects.create(
+            code='imp-31088843cedc823a',
+            name='ПИнж',
+            abbr='ПИнж',
+        )
+        Curriculum.objects.create(specialty=imp_spec, admission_year=2026, study_form='full_time')
+        Group.objects.create(
+            name='26ПИнж1д', specialty=imp_spec, course=1, study_form='full_time', students_count=20
+        )
+
+        self.client.login(username='deputy_ui', password='pass')
+        for url in ['/dean/curricula/', '/dean/specialties/', '/dean/groups/', '/dean/disciplines/']:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200)
+            html = resp.content.decode('utf-8')
+            self.assertNotIn('imp-31088843cedc823a', html, f'Код imp- не должен отображаться на {url}')
+            self.assertNotIn('ПИнж (ПИнж)', html, f'Название не должно дублироваться на {url}')
+
+    def test_curricula_merge_duplicates_redistributes_disciplines(self):
+        dup_spec = Specialty.objects.create(
+            code='imp-abcdef1234567890',
+            name='ИВТ',
+            abbr='ИВТ',
+        )
+        dup_cur = Curriculum.objects.create(
+            specialty=dup_spec,
+            admission_year=self.curriculum.admission_year,
+            study_form=self.curriculum.study_form,
+        )
+        moved_disc = Discipline.objects.create(
+            curriculum=dup_cur,
+            department=self.dept,
+            name='Новая дисциплина из дубля',
+            semester=2,
+            hours_lec=Decimal('18'),
+        )
+
+        self.client.login(username='deputy_ui', password='pass')
+        page = self.client.get('/dean/curricula/')
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, 'Объединить дубликаты (1)')
+
+        resp = self.client.post('/dean/curricula/', {'action': 'merge_duplicates'})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Specialty.objects.filter(pk=dup_spec.pk).exists())
+        self.assertFalse(Curriculum.objects.filter(pk=dup_cur.pk).exists())
+        moved_disc.refresh_from_db()
+        self.assertEqual(moved_disc.curriculum_id, self.curriculum.pk)
+
+    def test_disciplines_page_filters_and_recalculates_load_on_edit(self):
+        self.client.login(username='deputy_ui', password='pass')
+
+        # Фильтр по учебному плану и семестру + видимая кнопка сброса
+        resp = self.client.get(f'/dean/disciplines/?curriculum={self.curriculum.pk}&semester={self.discipline.semester}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, self.discipline.name)
+        self.assertContains(resp, 'Сбросить')
+
+        # Редактирование часов с дробными ЗЕ пересчитывает LoadItem, сохраняя преподавателя
+        self.discipline.groups.add(self.acad_group)
+        resp_save = self.client.post('/dean/disciplines/', {
+            'action': 'save',
+            'discipline_id': self.discipline.pk,
+            'next_query': f'curriculum={self.curriculum.pk}',
+            'name': self.discipline.name,
+            'curriculum': self.curriculum.pk,
+            'department': self.dept.pk,
+            'semester': self.discipline.semester,
+            'control_form': 'exam',
+            'hours_lec': '44',
+            'hours_pract': '16',
+            'hours_lab': '0',
+            'hours_usr': '0',
+            'control_works': '0',
+            'credits': '3.5',
+            'groups': [self.acad_group.pk],
+        })
+        self.assertEqual(resp_save.status_code, 302)
+        self.assertEqual(resp_save['Location'], f'/dean/disciplines/?curriculum={self.curriculum.pk}')
+
+        self.load_item.refresh_from_db()
+        self.assertEqual(self.load_item.hours, Decimal('44'))
+        self.assertEqual(self.load_item.teacher, self.teacher)
+        self.assertTrue(LoadItem.objects.filter(discipline=self.discipline, kind='pract', hours=Decimal('16')).exists())
+
+

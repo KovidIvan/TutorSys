@@ -3,6 +3,9 @@
 """
 
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
+from urllib.parse import urlencode
+from collections import defaultdict
 from django.contrib.auth import authenticate, login, logout, views as auth_views
 from django.contrib.auth.decorators import login_required
 from django import forms
@@ -587,7 +590,8 @@ def distribution_view(request):
             'teacher'
         )
         .order_by(
-            'discipline__curriculum__specialty__code',
+            'discipline__curriculum__specialty__abbr',
+            'discipline__curriculum__specialty__name',
             'discipline__semester',
             'discipline__name',
             'kind'
@@ -1198,6 +1202,135 @@ def dean_dashboard_view(request):
     return render(request, 'core/dean/dashboard.html', context)
 
 
+def _find_duplicate_specialty_groups():
+    """Найти группы специальностей с совпадающими сокращениями или названиями."""
+    specialties = list(Specialty.objects.all().order_by('pk'))
+    if len(specialties) < 2:
+        return []
+
+    parent = {s.pk: s.pk for s in specialties}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    seen_keys = {}
+    for spec in specialties:
+        keys = {
+            value.strip().casefold()
+            for value in (spec.abbr, spec.name)
+            if value and value.strip()
+        }
+        for key in keys:
+            if key in seen_keys:
+                union(seen_keys[key], spec.pk)
+            else:
+                seen_keys[key] = spec.pk
+
+    buckets = defaultdict(list)
+    for spec in specialties:
+        buckets[find(spec.pk)].append(spec)
+
+    groups = []
+    for bucket in buckets.values():
+        if len(bucket) > 1:
+            bucket.sort(key=lambda s: (s.has_synthetic_code, s.pk))
+            groups.append(bucket)
+    return groups
+
+
+def _merge_duplicate_curricula():
+    """
+    Объединить дублирующиеся по названию/сокращению специальности и их учебные планы,
+    аккуратно перераспределив группы, дисциплины, нагрузку и записи журнала.
+    """
+    groups = _find_duplicate_specialty_groups()
+    if not groups:
+        return 0, 0, 0
+
+    merged_specialties = 0
+    merged_curricula = 0
+    moved_disciplines = 0
+
+    with transaction.atomic():
+        for bucket in groups:
+            canonical_spec = bucket[0]
+            for dup_spec in bucket[1:]:
+                AcademicGroup.objects.filter(specialty=dup_spec).update(specialty=canonical_spec)
+
+                for dup_cur in list(Curriculum.objects.filter(specialty=dup_spec).prefetch_related('disciplines__groups')):
+                    canon_cur = Curriculum.objects.filter(
+                        specialty=canonical_spec,
+                        admission_year=dup_cur.admission_year,
+                        study_form=dup_cur.study_form,
+                    ).first()
+
+                    if canon_cur is None:
+                        dup_cur.specialty = canonical_spec
+                        dup_cur.save(update_fields=['specialty'])
+                        continue
+
+                    existing_discs = {}
+                    for d in canon_cur.disciplines.prefetch_related('groups'):
+                        d_key = (
+                            d.name.strip().casefold(),
+                            d.semester,
+                            d.department_id,
+                            tuple(sorted(g.pk for g in d.groups.all())),
+                        )
+                        existing_discs[d_key] = d
+
+                    for disc in list(dup_cur.disciplines.prefetch_related('groups', 'teacher_set')):
+                        d_key = (
+                            disc.name.strip().casefold(),
+                            disc.semester,
+                            disc.department_id,
+                            tuple(sorted(g.pk for g in disc.groups.all())),
+                        )
+                        target_disc = existing_discs.get(d_key)
+                        if target_disc is None:
+                            disc.curriculum = canon_cur
+                            disc.save(update_fields=['curriculum'])
+                            existing_discs[d_key] = disc
+                            moved_disciplines += 1
+                        else:
+                            for teacher in disc.teacher_set.all():
+                                teacher.specialization.add(target_disc)
+                            for src_item in list(LoadItem.objects.filter(discipline=disc)):
+                                dst_item = LoadItem.objects.filter(
+                                    discipline=target_disc,
+                                    kind=src_item.kind,
+                                    group=src_item.group,
+                                    subgroup_no=src_item.subgroup_no,
+                                ).first()
+                                if dst_item is None:
+                                    src_item.discipline = target_disc
+                                    src_item.save(update_fields=['discipline'])
+                                else:
+                                    if dst_item.teacher_id is None and src_item.teacher_id is not None:
+                                        dst_item.teacher_id = src_item.teacher_id
+                                        dst_item.save(update_fields=['teacher'])
+                                    JournalEntry.objects.filter(load_item=src_item).update(load_item=dst_item)
+                                    src_item.delete()
+                            disc.delete()
+                            moved_disciplines += 1
+
+                    dup_cur.delete()
+                    merged_curricula += 1
+
+                dup_spec.delete()
+                merged_specialties += 1
+
+    return merged_specialties, merged_curricula, moved_disciplines
+
+
 @login_required
 def specialties_view(request):
     """Справочник специальностей: список, добавление, редактирование, удаление."""
@@ -1215,7 +1348,7 @@ def specialties_view(request):
         if action == 'delete':
             spec_id = request.POST.get('specialty_id')
             spec = get_object_or_404(Specialty, pk=spec_id)
-            name = spec.name
+            name = spec.display_name
             spec.delete()
             messages.success(request, f'Специальность «{name}» успешно удалена.')
             return redirect('core:specialties')
@@ -1223,16 +1356,19 @@ def specialties_view(request):
         if action == 'save':
             spec_id = request.POST.get('specialty_id')
             instance = get_object_or_404(Specialty, pk=spec_id) if spec_id else None
+            editing = instance
             form = SpecialtyForm(request.POST, instance=instance)
             if form.is_valid():
                 form.save()
                 messages.success(request, 'Специальность сохранена.')
                 return redirect('core:specialties')
+        else:
+            form = SpecialtyForm(instance=editing)
     else:
         form = SpecialtyForm(instance=editing)
 
     context = add_role_context({
-        'specialties': Specialty.objects.all().order_by('code'),
+        'specialties': Specialty.objects.prefetch_related('groups', 'curriculums').order_by('abbr', 'name'),
         'form': form,
         'editing': editing,
     }, request)
@@ -1264,11 +1400,14 @@ def departments_view(request):
         if action == 'save':
             dept_id = request.POST.get('department_id')
             instance = get_object_or_404(Department, pk=dept_id) if dept_id else None
+            editing = instance
             form = DepartmentForm(request.POST, instance=instance)
             if form.is_valid():
                 form.save()
                 messages.success(request, 'Кафедра сохранена.')
                 return redirect('core:departments')
+        else:
+            form = DepartmentForm(instance=editing)
     else:
         form = DepartmentForm(instance=editing)
 
@@ -1289,8 +1428,10 @@ def groups_view(request):
 
     selected_specialty = request.GET.get('specialty', '').strip()
     groups_qs = AcademicGroup.objects.select_related('specialty').order_by('course', 'name')
-    if selected_specialty:
-        groups_qs = groups_qs.filter(specialty_id=selected_specialty)
+    if selected_specialty.isdigit():
+        groups_qs = groups_qs.filter(specialty_id=int(selected_specialty))
+    else:
+        selected_specialty = ''
 
     editing = None
     edit_id = request.GET.get('edit')
@@ -1310,17 +1451,20 @@ def groups_view(request):
         if action == 'save':
             group_id = request.POST.get('group_id')
             instance = get_object_or_404(AcademicGroup, pk=group_id) if group_id else None
+            editing = instance
             form = GroupForm(request.POST, instance=instance)
             if form.is_valid():
                 form.save()
                 messages.success(request, 'Группа сохранена.')
                 return redirect('core:groups')
+        else:
+            form = GroupForm(instance=editing)
     else:
         form = GroupForm(instance=editing)
 
     context = add_role_context({
         'groups': groups_qs,
-        'specialties': Specialty.objects.order_by('name'),
+        'specialties': Specialty.objects.order_by('abbr', 'name'),
         'selected_specialty': selected_specialty,
         'form': form,
         'editing': editing,
@@ -1330,15 +1474,28 @@ def groups_view(request):
 
 @login_required
 def curricula_view(request):
-    """Учебные планы: список, добавление, редактирование, удаление."""
+    """Учебные планы: список с группировкой по специальности, объединение дублей, CRUD."""
     access_error = _require_deputy_dean(request)
     if access_error:
         return access_error
 
     selected_specialty = request.GET.get('specialty', '').strip()
-    curricula_qs = Curriculum.objects.select_related('specialty').prefetch_related('disciplines').order_by('-admission_year', 'specialty__code')
-    if selected_specialty:
-        curricula_qs = curricula_qs.filter(specialty_id=selected_specialty)
+    selected_study_form = request.GET.get('study_form', '').strip()
+    valid_study_forms = {code for code, _ in AcademicGroup.STUDY_FORM_CHOICES}
+    if selected_study_form not in valid_study_forms:
+        selected_study_form = ''
+
+    curricula_qs = (
+        Curriculum.objects.select_related('specialty')
+        .prefetch_related('disciplines')
+        .order_by('specialty__abbr', 'specialty__name', '-admission_year', 'study_form')
+    )
+    if selected_specialty.isdigit():
+        curricula_qs = curricula_qs.filter(specialty_id=int(selected_specialty))
+    else:
+        selected_specialty = ''
+    if selected_study_form:
+        curricula_qs = curricula_qs.filter(study_form=selected_study_form)
 
     editing = None
     edit_id = request.GET.get('edit')
@@ -1347,6 +1504,18 @@ def curricula_view(request):
 
     if request.method == 'POST':
         action = request.POST.get('action')
+        if action == 'merge_duplicates':
+            merged_specs, merged_cur, moved_discs = _merge_duplicate_curricula()
+            if merged_specs or merged_cur:
+                messages.success(
+                    request,
+                    f'Дубликаты объединены: специальностей — {merged_specs}, '
+                    f'учебных планов — {merged_cur}, перераспределено дисциплин — {moved_discs}.'
+                )
+            else:
+                messages.info(request, 'Дублирующихся учебных планов с одинаковыми названиями не найдено.')
+            return redirect('core:curricula')
+
         if action == 'delete':
             cur_id = request.POST.get('curriculum_id')
             cur = get_object_or_404(Curriculum, pk=cur_id)
@@ -1358,18 +1527,50 @@ def curricula_view(request):
         if action == 'save':
             cur_id = request.POST.get('curriculum_id')
             instance = get_object_or_404(Curriculum, pk=cur_id) if cur_id else None
+            editing = instance
             form = CurriculumForm(request.POST, instance=instance)
             if form.is_valid():
                 form.save()
                 messages.success(request, 'Учебный план сохранён.')
                 return redirect('core:curricula')
+        else:
+            form = CurriculumForm(instance=editing)
     else:
         form = CurriculumForm(instance=editing)
 
+    curricula_list = list(curricula_qs)
+    curriculum_groups = []
+    for cur in curricula_list:
+        disc_count = len(cur.disciplines.all())
+        cur.disc_count = disc_count
+        if not curriculum_groups or curriculum_groups[-1]['specialty'].pk != cur.specialty_id:
+            curriculum_groups.append({
+                'specialty': cur.specialty,
+                'items': [],
+                'total_disciplines': 0,
+            })
+        curriculum_groups[-1]['items'].append(cur)
+        curriculum_groups[-1]['total_disciplines'] += disc_count
+
+    duplicate_groups = _find_duplicate_specialty_groups()
+    duplicate_count = sum(len(group) - 1 for group in duplicate_groups)
+
+    filter_params = {}
+    if selected_specialty:
+        filter_params['specialty'] = selected_specialty
+    if selected_study_form:
+        filter_params['study_form'] = selected_study_form
+    filter_query = urlencode(filter_params)
+
     context = add_role_context({
-        'curricula': curricula_qs,
-        'specialties': Specialty.objects.order_by('name'),
+        'curricula': curricula_list,
+        'curriculum_groups': curriculum_groups,
+        'specialties': Specialty.objects.order_by('abbr', 'name'),
+        'study_forms': AcademicGroup.STUDY_FORM_CHOICES,
         'selected_specialty': selected_specialty,
+        'selected_study_form': selected_study_form,
+        'filter_query': filter_query,
+        'duplicate_count': duplicate_count,
         'form': form,
         'editing': editing,
     }, request)
@@ -1385,19 +1586,47 @@ def disciplines_view(request):
 
     disciplines_qs = Discipline.objects.select_related(
         'curriculum__specialty', 'department'
-    ).prefetch_related('groups').order_by('name', 'semester')
+    ).prefetch_related('groups').order_by(
+        'curriculum__specialty__abbr', '-curriculum__admission_year', 'semester', 'name'
+    )
 
     search_query = request.GET.get('q', '').strip()
     if search_query:
         disciplines_qs = disciplines_qs.filter(name__icontains=search_query)
 
     selected_department = request.GET.get('department', '').strip()
-    if selected_department:
-        disciplines_qs = disciplines_qs.filter(department_id=selected_department)
+    if selected_department.isdigit():
+        disciplines_qs = disciplines_qs.filter(department_id=int(selected_department))
+    else:
+        selected_department = ''
 
     selected_curriculum = request.GET.get('curriculum', '').strip()
+    if selected_curriculum.isdigit():
+        disciplines_qs = disciplines_qs.filter(curriculum_id=int(selected_curriculum))
+    else:
+        selected_curriculum = ''
+
+    selected_semester = request.GET.get('semester', '').strip()
+    if selected_semester.isdigit():
+        disciplines_qs = disciplines_qs.filter(semester=int(selected_semester))
+    else:
+        selected_semester = ''
+
+    filter_params = {}
+    if search_query:
+        filter_params['q'] = search_query
+    if selected_department:
+        filter_params['department'] = selected_department
     if selected_curriculum:
-        disciplines_qs = disciplines_qs.filter(curriculum_id=selected_curriculum)
+        filter_params['curriculum'] = selected_curriculum
+    if selected_semester:
+        filter_params['semester'] = selected_semester
+    filter_query = urlencode(filter_params)
+
+    def _redirect_with_filters():
+        next_query = (request.POST.get('next_query') or '').strip()
+        base_url = reverse('core:disciplines')
+        return redirect(f'{base_url}?{next_query}' if next_query else base_url)
 
     editing = None
     edit_id = request.GET.get('edit')
@@ -1412,26 +1641,48 @@ def disciplines_view(request):
             name = disc.name
             disc.delete()
             messages.success(request, f'Дисциплина «{name}» успешно удалена.')
-            return redirect('core:disciplines')
+            return _redirect_with_filters()
 
         if action == 'save':
             disc_id = request.POST.get('discipline_id')
             instance = get_object_or_404(Discipline, pk=disc_id) if disc_id else None
+            editing = instance
+            old_department = instance.department if instance else None
             form = DisciplineForm(request.POST, instance=instance)
             if form.is_valid():
-                form.save()
-                messages.success(request, 'Дисциплина сохранена.')
-                return redirect('core:disciplines')
+                with transaction.atomic():
+                    saved_disc = form.save()
+                settings_obj = CalcSettings.get()
+                recalc_depts = []
+                if saved_disc.department:
+                    recalc_depts.append(saved_disc.department)
+                if old_department and old_department.pk != getattr(saved_disc.department, 'pk', None):
+                    recalc_depts.append(old_department)
+                for dept in recalc_depts:
+                    recalculate_department(dept, settings_obj, auto_assign=False, lock_assigned=True)
+                messages.success(request, 'Дисциплина сохранена, элементы нагрузки обновлены.')
+                return _redirect_with_filters()
+        else:
+            form = DisciplineForm(instance=editing)
     else:
         form = DisciplineForm(instance=editing)
+
+    semesters = list(
+        Discipline.objects.values_list('semester', flat=True).distinct().order_by('semester')
+    )
 
     context = add_role_context({
         'disciplines': disciplines_qs,
         'departments': Department.objects.order_by('name'),
-        'curricula': Curriculum.objects.select_related('specialty').order_by('specialty__code', 'admission_year'),
+        'curricula': Curriculum.objects.select_related('specialty').order_by(
+            'specialty__abbr', 'specialty__name', '-admission_year', 'study_form'
+        ),
+        'semesters': semesters,
         'selected_department': selected_department,
         'selected_curriculum': selected_curriculum,
+        'selected_semester': selected_semester,
         'search_query': search_query,
+        'filter_query': filter_query,
         'form': form,
         'editing': editing,
     }, request)

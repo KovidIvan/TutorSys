@@ -41,6 +41,10 @@ REQUIRED_HEADERS = {
     'exams': 'экзамен',
     'credits': 'зачёт',
 }
+OPTIONAL_HEADERS = {
+    'streams': 'потоков',
+    'lectures_total': 'лекции (всего)',
+}
 STUDY_FORMS = {
     'д': 'full_time',
     'd': 'full_time',
@@ -153,6 +157,10 @@ def _read_workbook(uploaded_file):
             raise WorkloadImportError(
                 'Не найдены обязательные столбцы: ' + ', '.join(missing) + '.'
             )
+        for name, title in OPTIONAL_HEADERS.items():
+            index = header_indexes.get(title)
+            if index is not None:
+                columns[name] = index
 
         parsed_rows = []
         warnings = 0
@@ -220,6 +228,21 @@ def _read_workbook(uploaded_file):
                     f'Строка {row_number}: одновременно указаны экзамен и зачёт.'
                 )
 
+            hours_lec = _hours(_cell(row, columns, 'lectures'), 'Лекции (по плану)', row_number)
+            # Если в файле есть столбец «Лекции (всего)» или «Потоков», и он пуст/0,
+            # значит лекции по этой группе уже учтены в отдельной строке общего потока.
+            has_lec_total_col = 'lectures_total' in columns
+            has_streams_col = 'streams' in columns
+            if hours_lec > 0 and (has_lec_total_col or has_streams_col):
+                lec_total_empty = has_lec_total_col and _hours(
+                    _cell(row, columns, 'lectures_total'), 'Лекции (всего)', row_number
+                ) == 0
+                streams_empty = has_streams_col and (_integer(
+                    _cell(row, columns, 'streams'), 'Потоков', row_number, minimum=0
+                ) or 0) == 0
+                if (has_lec_total_col and lec_total_empty) or (not has_lec_total_col and streams_empty):
+                    hours_lec = Decimal('0')
+
             parsed_rows.append(WorkloadRow(
                 row_number=row_number,
                 name=name,
@@ -230,7 +253,7 @@ def _read_workbook(uploaded_file):
                 students=students,
                 groups=group_count,
                 subgroups=subgroups,
-                hours_lec=_hours(_cell(row, columns, 'lectures'), 'Лекции (по плану)', row_number),
+                hours_lec=hours_lec,
                 hours_pract=_hours(_cell(row, columns, 'practices'), 'Практические (по плану)', row_number),
                 hours_lab=_hours(_cell(row, columns, 'labs'), 'Лабораторные (по плану)', row_number),
                 hours_usr=_hours(_cell(row, columns, 'usr'), 'УСР', row_number),
@@ -329,6 +352,7 @@ def import_workload_xlsx(
     imported_specialties = set()
     imported_groups = set()
     imported_disciplines = set()
+    seen_discipline_keys = {}
 
     with transaction.atomic():
         if department is None:
@@ -412,24 +436,40 @@ def import_workload_xlsx(
             curriculum = curriculum_cache[(specialty_cache[row.specialties[0].casefold()].pk,
                                            admission_year, row.study_form)]
             group_ids = sorted(group.pk for group in groups_for_discipline)
-            discipline = None
-            for candidate in Discipline.objects.filter(
-                curriculum=curriculum, name=row.name, semester=row.semester
-            ):
-                if sorted(candidate.groups.values_list('pk', flat=True)) == group_ids:
-                    discipline = candidate
-                    break
-            if discipline is None:
-                discipline = Discipline(curriculum=curriculum, name=row.name, semester=row.semester)
-            discipline.department = department
-            discipline.hours_lec = row.hours_lec
-            discipline.hours_pract = row.hours_pract
-            discipline.hours_lab = row.hours_lab
-            discipline.hours_usr = row.hours_usr
-            discipline.control_works = row.control_works
-            discipline.control_form = row.control_form
-            discipline.save()
-            discipline.groups.set(groups_for_discipline)
+            discipline_key = (curriculum.pk, row.name, row.semester, tuple(group_ids))
+            if discipline_key in seen_discipline_keys:
+                # В одном файле могут быть 2 строки на ту же дисциплину и семестр
+                # (например, установочная сессия Семестр=0 и основная Семестр=1 у заочников):
+                # объединяем их часы вместо перезатирания.
+                discipline = seen_discipline_keys[discipline_key]
+                discipline.hours_lec += row.hours_lec
+                discipline.hours_pract += row.hours_pract
+                discipline.hours_lab += row.hours_lab
+                discipline.hours_usr += row.hours_usr
+                discipline.control_works += row.control_works
+                if row.control_form != 'none':
+                    discipline.control_form = row.control_form
+                discipline.save()
+            else:
+                discipline = None
+                for candidate in Discipline.objects.filter(
+                    curriculum=curriculum, name=row.name, semester=row.semester
+                ):
+                    if sorted(candidate.groups.values_list('pk', flat=True)) == group_ids:
+                        discipline = candidate
+                        break
+                if discipline is None:
+                    discipline = Discipline(curriculum=curriculum, name=row.name, semester=row.semester)
+                discipline.department = department
+                discipline.hours_lec = row.hours_lec
+                discipline.hours_pract = row.hours_pract
+                discipline.hours_lab = row.hours_lab
+                discipline.hours_usr = row.hours_usr
+                discipline.control_works = row.control_works
+                discipline.control_form = row.control_form
+                discipline.save()
+                discipline.groups.set(groups_for_discipline)
+                seen_discipline_keys[discipline_key] = discipline
             imported_disciplines.add(discipline.pk)
 
         recalculate_department(department, CalcSettings.get())

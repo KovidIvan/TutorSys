@@ -34,7 +34,31 @@ class Specialty(models.Model):
         verbose_name_plural = 'Специальности'
         ordering = ['code']
 
+    @property
+    def has_synthetic_code(self) -> bool:
+        return (self.code or '').startswith('imp-')
+
+    @property
+    def display_code(self) -> str:
+        return '' if self.has_synthetic_code else (self.code or '')
+
+    @property
+    def display_name(self) -> str:
+        name = (self.name or '').strip()
+        abbr = (self.abbr or '').strip()
+        if name and abbr and name.casefold() != abbr.casefold():
+            return f'{name} ({abbr})'
+        return name or abbr
+
+    @property
+    def display_title(self) -> str:
+        if self.display_code:
+            return f'{self.display_code} — {self.display_name}'
+        return self.display_name
+
     def __str__(self):
+        if self.has_synthetic_code:
+            return self.display_name
         return f'{self.code} — {self.abbr}'
 
 

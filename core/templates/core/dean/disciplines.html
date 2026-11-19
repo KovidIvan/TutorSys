@@ -2,7 +2,7 @@
 {% block title %}Дисциплины — Деканат{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
     <div>
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb mb-1">
@@ -15,16 +15,24 @@
     <a href="{% url 'core:dean_dashboard' %}" class="btn btn-outline-secondary btn-sm">← В панель деканата</a>
 </div>
 
-<div class="row">
+<div class="row g-4">
     <!-- Список дисциплин -->
-    <div class="col-lg-7">
+    <div class="col-xl-8">
         <div class="card mb-4 shadow-sm">
             <div class="card-header bg-white py-3">
                 <form method="get" class="row g-2 align-items-center">
-                    <div class="col-md-5">
+                    <div class="col-md-4">
                         <input type="search" name="q" value="{{ search_query }}" class="form-control form-control-sm" placeholder="Поиск по названию...">
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
+                        <select name="curriculum" class="form-select form-select-sm" onchange="this.form.submit()">
+                            <option value="">Все учебные планы</option>
+                            {% for cur in curricula %}
+                                <option value="{{ cur.pk }}" {% if selected_curriculum == cur.pk|stringformat:"i" %}selected{% endif %}>{{ cur }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
                         <select name="department" class="form-select form-select-sm" onchange="this.form.submit()">
                             <option value="">Все кафедры</option>
                             {% for d in departments %}
@@ -32,23 +40,34 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <div class="col-md-3 d-flex gap-1">
-                        <button type="submit" class="btn btn-sm btn-primary w-100">Найти</button>
-                        {% if search_query or selected_department or selected_curriculum %}
-                            <a href="{% url 'core:disciplines' %}" class="btn btn-sm btn-outline-secondary" title="Сбросить"></a>
-                        {% endif %}
+                    <div class="col-md-2">
+                        <select name="semester" class="form-select form-select-sm" onchange="this.form.submit()">
+                            <option value="">Все сем.</option>
+                            {% for sem in semesters %}
+                                <option value="{{ sem }}" {% if selected_semester == sem|stringformat:"i" %}selected{% endif %}>{{ sem }} сем.</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 d-flex justify-content-between align-items-center pt-1">
+                        <span class="text-muted small">Найдено дисциплин: <strong>{{ disciplines|length }}</strong></span>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-sm btn-primary">Найти</button>
+                            {% if search_query or selected_department or selected_curriculum or selected_semester %}
+                                <a href="{% url 'core:disciplines' %}" class="btn btn-sm btn-outline-secondary" title="Сбросить фильтры">✕ Сбросить</a>
+                            {% endif %}
+                        </div>
                     </div>
                 </form>
             </div>
-            <div class="table-responsive" style="max-height: 700px; overflow-y: auto;">
+            <div class="table-responsive" style="max-height: 720px; overflow-y: auto;">
                 <table class="table table-hover table-sm align-middle mb-0">
                     <thead class="table-light sticky-top">
                         <tr>
-                            <th>Дисциплина</th>
-                            <th>План / Кафедра</th>
+                            <th style="min-width: 210px;">Дисциплина</th>
+                            <th style="min-width: 170px;">План / Кафедра</th>
                             <th class="text-center">Сем.</th>
                             <th class="text-center">Контроль</th>
-                            <th class="text-center">Часы (Л/П/Лаб)</th>
+                            <th class="text-center text-nowrap">Л / П / Лаб</th>
                             <th class="text-end">Действия</th>
                         </tr>
                     </thead>
@@ -57,30 +76,48 @@
                             <tr {% if editing and editing.pk == disc.pk %}class="table-active"{% endif %}>
                                 <td>
                                     <div class="fw-semibold">{{ disc.name }}</div>
-                                    <small class="text-muted">
-                                        {% for g in disc.groups.all %}<span class="badge bg-light text-dark border me-1">{{ g.name }}</span>{% empty %}Группы не привязаны{% endfor %}
-                                    </small>
+                                    <div class="mt-1">
+                                        {% for g in disc.groups.all %}
+                                            <span class="badge bg-light text-dark border me-1">{{ g.name }}</span>
+                                        {% empty %}
+                                            <span class="small text-warning">Группы не привязаны</span>
+                                        {% endfor %}
+                                    </div>
                                 </td>
                                 <td>
-                                    <div class="small fw-semibold">{{ disc.curriculum.specialty.abbr }} (набор {{ disc.curriculum.admission_year }})</div>
-                                    <div class="small text-muted">{{ disc.department.name }}</div>
+                                    <div class="small fw-semibold">{{ disc.curriculum }}</div>
+                                    <div class="small text-muted">
+                                        {% if disc.department %}
+                                            {{ disc.department.name }}
+                                        {% else %}
+                                            <span class="text-warning">Кафедра не назначена</span>
+                                        {% endif %}
+                                    </div>
                                 </td>
-                                <td class="text-center">{{ disc.semester }}</td>
+                                <td class="text-center fw-semibold">{{ disc.semester }}</td>
                                 <td class="text-center">
                                     <span class="badge {% if disc.control_form == 'exam' %}bg-danger{% elif disc.control_form == 'credit' %}bg-success{% else %}bg-secondary{% endif %}">
                                         {{ disc.get_control_form_display }}
                                     </span>
                                 </td>
                                 <td class="text-center text-nowrap small">
-                                    <strong>{{ disc.hours_lec|floatformat:"-2" }}</strong> / {{ disc.hours_pract|floatformat:"-2" }} / {{ disc.hours_lab|floatformat:"-2" }}
+                                    <div>
+                                        <strong>{{ disc.hours_lec|floatformat:"-1" }}</strong> / {{ disc.hours_pract|floatformat:"-1" }} / {{ disc.hours_lab|floatformat:"-1" }}
+                                    </div>
+                                    {% if disc.hours_usr > 0 or disc.control_works > 0 %}
+                                        <div class="text-muted" style="font-size: 0.72rem;">
+                                            {% if disc.hours_usr > 0 %}УСР {{ disc.hours_usr|floatformat:"-1" }}{% endif %}{% if disc.hours_usr > 0 and disc.control_works > 0 %} · {% endif %}{% if disc.control_works > 0 %}КР {{ disc.control_works }}{% endif %}
+                                        </div>
+                                    {% endif %}
                                 </td>
                                 <td class="text-end text-nowrap">
-                                    <a href="?edit={{ disc.pk }}" class="btn btn-sm btn-outline-primary">Изменить</a>
+                                    <a href="?{% if filter_query %}{{ filter_query }}&amp;{% endif %}edit={{ disc.pk }}#discipline-form" class="btn btn-sm btn-outline-primary">Изм.</a>
                                     <form method="post" class="d-inline" onsubmit="return confirm('Удалить дисциплину «{{ disc.name|escapejs }}»?');">
                                         {% csrf_token %}
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="discipline_id" value="{{ disc.pk }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger">Удалить</button>
+                                        <input type="hidden" name="next_query" value="{{ filter_query }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Удал.</button>
                                     </form>
                                 </td>
                             </tr>
@@ -93,13 +130,13 @@
                 </table>
             </div>
             <div class="card-footer bg-white text-muted small py-2">
-                Всего найдено: {{ disciplines|length }}
+                Всего показано: {{ disciplines|length }}
             </div>
         </div>
     </div>
 
     <!-- Форма создания / редактирования -->
-    <div class="col-lg-5">
+    <div class="col-xl-4" id="discipline-form">
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-white py-3">
                 <h5 class="card-title mb-0">
@@ -110,15 +147,29 @@
                 <form method="post">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save">
+                    <input type="hidden" name="next_query" value="{{ filter_query }}">
                     {% if editing %}
                         <input type="hidden" name="discipline_id" value="{{ editing.pk }}">
+                    {% endif %}
+
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger py-2 small">
+                            {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+                        </div>
                     {% endif %}
 
                     {% for field in form %}
                         <div class="mb-3">
                             <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {% if field.name == 'groups' %}
+                                <input type="search" id="groups-quick-filter" class="form-control form-control-sm mb-2" placeholder="Быстрый фильтр групп...">
+                            {% endif %}
                             {{ field }}
-                            {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                            {% if field.name == 'groups' %}
+                                <div class="form-text">Удерживайте Ctrl (или Cmd), чтобы выбрать несколько групп.</div>
+                            {% elif field.help_text %}
+                                <div class="form-text">{{ field.help_text }}</div>
+                            {% endif %}
                             {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
                     {% endfor %}
@@ -128,7 +179,7 @@
                             {% if editing %}Сохранить изменения{% else %}Создать дисциплину{% endif %}
                         </button>
                         {% if editing %}
-                            <a href="{% url 'core:disciplines' %}" class="btn btn-outline-secondary">Отмена</a>
+                            <a href="{% url 'core:disciplines' %}{% if filter_query %}?{{ filter_query }}{% endif %}" class="btn btn-outline-secondary">Отмена</a>
                         {% endif %}
                     </div>
                 </form>
@@ -136,4 +187,21 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const filterInput = document.getElementById('groups-quick-filter');
+    const select = document.getElementById('id_groups');
+    if (!filterInput || !select) return;
+    filterInput.addEventListener('input', function () {
+        const query = this.value.trim().toLowerCase();
+        for (const opt of select.options) {
+            const match = !query || opt.text.toLowerCase().includes(query);
+            opt.hidden = !match && !opt.selected;
+        }
+    });
+})();
+</script>
 {% endblock %}
