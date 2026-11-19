@@ -4,7 +4,9 @@ from django.conf import settings
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 import html
+import os
 import time
+import urllib.request
 
 from core.models import (
     TelegramProfile, Teacher, Department, Specialty, Group as AcademicGroup,
@@ -43,6 +45,7 @@ class Command(BaseCommand):
 
         webapp_base = (options.get('webapp_url') or getattr(settings, 'TELEGRAM_WEBAPP_URL', '')).strip().rstrip('/')
         webapp_url = f'{webapp_base}/telegram/webapp/' if webapp_base.startswith('https://') else ''
+        self.site_url = self._resolve_site_url(webapp_base)
 
         me = telegram_api_call('getMe', bot_token=token)
         bot_info = me.get('result', {})
@@ -104,6 +107,40 @@ class Command(BaseCommand):
         except Exception as exc:
             self.stderr.write(f'Предупреждение при настройке меню бота: {exc}')
 
+    def _resolve_site_url(self, webapp_base: str) -> str:
+        """Определить прямую ссылку на веб-сайт проекта для кнопки в Telegram."""
+        env_site = os.getenv('SITE_URL', '').strip().rstrip('/')
+        if env_site.startswith(('http://', 'https://')):
+            return env_site
+        if webapp_base.startswith(('http://', 'https://')):
+            return webapp_base
+        port = os.getenv('PORT', '8000').strip() or '8000'
+        for host in getattr(settings, 'ALLOWED_HOSTS', []):
+            h = host.strip()
+            if h and h not in {'*', 'localhost', '127.0.0.1', 'testserver', '0.0.0.0'}:
+                scheme = 'https' if h.endswith('.sslip.io') else 'http'
+                return f'{scheme}://{h}' if scheme == 'https' or ':' in h else f'{scheme}://{h}:{port}'
+        try:
+            with urllib.request.urlopen('https://api.ipify.org', timeout=3) as resp:
+                public_ip = resp.read().decode('utf-8').strip()
+                if public_ip and '.' in public_ip:
+                    return f'http://{public_ip}:{port}'
+        except Exception:
+            pass
+        return ''
+
+    def _nav_footer_rows(self, webapp_url: str, include_profile: bool = True):
+        """Нижний ряд кнопок для любого экрана: возврат в свой профиль и прямой переход на сайт."""
+        rows = []
+        nav_row = []
+        if include_profile:
+            nav_row.append({'text': '👤 В мой профиль', 'callback_data': 'cmd_status'})
+        if getattr(self, 'site_url', ''):
+            nav_row.append({'text': '🌐 Перейти на сайт S.C.A.L.E', 'url': self.site_url})
+        if nav_row:
+            rows.append(nav_row)
+        return rows
+
     def _build_keyboard(self, webapp_url: str, is_linked: bool, user=None):
         inline_rows = []
         if webapp_url:
@@ -121,7 +158,11 @@ class Command(BaseCommand):
             ])
             inline_rows.append([
                 {'text': '📥 Скачать Excel', 'callback_data': 'cmd_export'},
-                {'text': '👤 Профиль', 'callback_data': 'cmd_status'},
+                {'text': '👤 В мой профиль', 'callback_data': 'cmd_status'},
+            ])
+        if getattr(self, 'site_url', ''):
+            inline_rows.append([
+                {'text': '🌐 Перейти на сайт S.C.A.L.E', 'url': self.site_url}
             ])
         return {'inline_keyboard': inline_rows} if inline_rows else None
 
@@ -195,7 +236,7 @@ class Command(BaseCommand):
             self._start_journal_wizard(chat_id, tg_user, token, webapp_url)
         elif data == 'j_cancel':
             self.user_states.pop(chat_id, None)
-            self._send(chat_id, '✖️ Добавление записи отменено.', token, self._build_keyboard(webapp_url, True))
+            self._handle_status(chat_id, tg_user, token, webapp_url)
         elif data.startswith('j_item:'):
             item_id = int(data.split(':', 1)[1])
             self._wizard_select_item(chat_id, tg_user, item_id, token)
@@ -265,6 +306,9 @@ class Command(BaseCommand):
                 f'• <code>/link head pass123</code> (Зав. кафедрой)\n'
                 f'• <code>/link deputy_dean pass123</code> (Зам. декана)'
             )
+
+        if getattr(self, 'site_url', ''):
+            text += f'\n\n🌐 Веб-сайт проекта: <a href="{html.escape(self.site_url)}">{html.escape(self.site_url)}</a>'
 
         self._send(chat_id, text, token, self._build_keyboard(webapp_url, bool(profile)))
 
@@ -409,7 +453,7 @@ class Command(BaseCommand):
                     {'text': '📓 Журнал занятий', 'callback_data': 'cmd_journal'},
                     {'text': '➕ Добавить занятие', 'callback_data': 'j_add_start'},
                 ],
-            ]
+            ] + self._nav_footer_rows(webapp_url, include_profile=True)
         }
         if webapp_url:
             kb['inline_keyboard'].insert(0, [{'text': '🚀 Открыть таблицу в Mini App', 'web_app': {'url': webapp_url}}])
@@ -483,7 +527,7 @@ class Command(BaseCommand):
                     {'text': '📊 Моя нагрузка', 'callback_data': 'cmd_workload'},
                     {'text': '📈 План / Факт', 'callback_data': 'cmd_report'},
                 ],
-            ]
+            ] + self._nav_footer_rows(webapp_url, include_profile=True)
         }
         self._send(chat_id, '\n'.join(lines), token, kb)
 
@@ -514,7 +558,9 @@ class Command(BaseCommand):
             )
             label = f'{item.discipline.name[:24]} · {item.get_kind_display()} ({grp})'
             buttons.append([{'text': label, 'callback_data': f'j_item:{item.id}'}])
-        buttons.append([{'text': '✖️ Отмена', 'callback_data': 'j_cancel'}])
+        buttons.append([{'text': '👤 Отмена · В мой профиль', 'callback_data': 'j_cancel'}])
+        if getattr(self, 'site_url', ''):
+            buttons.append([{'text': '🌐 Перейти на сайт S.C.A.L.E', 'url': self.site_url}])
 
         self._send(
             chat_id,
@@ -541,12 +587,13 @@ class Command(BaseCommand):
             'item_label': str(item),
         }
 
-        kb = {
-            'inline_keyboard': [
-                [{'text': f'📅 Сегодня ({date.today().strftime("%d.%m.%Y")})', 'callback_data': f'j_date:{today_str}'}],
-                [{'text': '✖️ Отмена', 'callback_data': 'j_cancel'}],
-            ]
-        }
+        rows = [
+            [{'text': f'📅 Сегодня ({date.today().strftime("%d.%m.%Y")})', 'callback_data': f'j_date:{today_str}'}],
+            [{'text': '👤 Отмена · В мой профиль', 'callback_data': 'j_cancel'}],
+        ]
+        if getattr(self, 'site_url', ''):
+            rows.append([{'text': '🌐 Перейти на сайт S.C.A.L.E', 'url': self.site_url}])
+        kb = {'inline_keyboard': rows}
         self._send(
             chat_id,
             f'➕ <b>Шаг 2 из 4 · Дата проведения</b>\n'
@@ -563,21 +610,22 @@ class Command(BaseCommand):
         state['date'] = date_iso
         state['step'] = 'enter_hours'
 
-        kb = {
-            'inline_keyboard': [
-                [
-                    {'text': '2 ч (пара)', 'callback_data': 'j_hours:2'},
-                    {'text': '1.5 ч', 'callback_data': 'j_hours:1.5'},
-                    {'text': '1 ч', 'callback_data': 'j_hours:1'},
-                    {'text': '4 ч', 'callback_data': 'j_hours:4'},
-                ],
-                [
-                    {'text': '0.5 ч', 'callback_data': 'j_hours:0.5'},
-                    {'text': '0.25 ч', 'callback_data': 'j_hours:0.25'},
-                ],
-                [{'text': '✖️ Отмена', 'callback_data': 'j_cancel'}],
-            ]
-        }
+        rows = [
+            [
+                {'text': '2 ч (пара)', 'callback_data': 'j_hours:2'},
+                {'text': '1.5 ч', 'callback_data': 'j_hours:1.5'},
+                {'text': '1 ч', 'callback_data': 'j_hours:1'},
+                {'text': '4 ч', 'callback_data': 'j_hours:4'},
+            ],
+            [
+                {'text': '0.5 ч', 'callback_data': 'j_hours:0.5'},
+                {'text': '0.25 ч', 'callback_data': 'j_hours:0.25'},
+            ],
+            [{'text': '👤 Отмена · В мой профиль', 'callback_data': 'j_cancel'}],
+        ]
+        if getattr(self, 'site_url', ''):
+            rows.append([{'text': '🌐 Перейти на сайт S.C.A.L.E', 'url': self.site_url}])
+        kb = {'inline_keyboard': rows}
         self._send(
             chat_id,
             f'➕ <b>Шаг 3 из 4 · Количество часов</b>\n'
@@ -594,7 +642,10 @@ class Command(BaseCommand):
         state['hours'] = hours_str
         state['step'] = 'enter_topic'
 
-        kb = {'inline_keyboard': [[{'text': '✖️ Отмена', 'callback_data': 'j_cancel'}]]}
+        rows = [[{'text': '👤 Отмена · В мой профиль', 'callback_data': 'j_cancel'}]]
+        if getattr(self, 'site_url', ''):
+            rows.append([{'text': '🌐 Перейти на сайт S.C.A.L.E', 'url': self.site_url}])
+        kb = {'inline_keyboard': rows}
         self._send(
             chat_id,
             f'➕ <b>Шаг 4 из 4 · Тема занятия</b>\n'
@@ -726,7 +777,7 @@ class Command(BaseCommand):
                     {'text': '📊 Моя нагрузка', 'callback_data': 'cmd_workload'},
                     {'text': '📓 Журнал занятий', 'callback_data': 'cmd_journal'},
                 ],
-            ]
+            ] + self._nav_footer_rows(webapp_url, include_profile=True)
         }
         self._send(chat_id, '\n'.join(lines), token, kb)
 
@@ -751,6 +802,7 @@ class Command(BaseCommand):
             buttons.append([{'text': '📥 Преподаватели кафедры (department_teachers.xlsx)', 'callback_data': 'exp:teachers'}])
 
         buttons.append([{'text': f'📥 Отчёт План / Факт за {date.today().year} г. (.xlsx)', 'callback_data': 'exp:report'}])
+        buttons.extend(self._nav_footer_rows(webapp_url, include_profile=True))
 
         self._send(
             chat_id,
@@ -995,5 +1047,8 @@ class Command(BaseCommand):
             lines.append(f'\n🏢 <b>Сводка по кафедре «{html.escape(dept.name)}»:</b>')
             lines.append(f'• Преподавателей: <b>{dept.teachers.count()}</b>')
             lines.append(f'• Элементов нагрузки: <b>{total_items}</b> (нераспределённых: <b>{unassigned}</b>)')
+
+        if getattr(self, 'site_url', ''):
+            lines.append(f'\n🌐 Веб-сайт проекта: <a href="{html.escape(self.site_url)}">{html.escape(self.site_url)}</a>')
 
         self._send(chat_id, '\n'.join(lines), token, self._build_keyboard(webapp_url, True))
