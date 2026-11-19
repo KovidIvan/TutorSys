@@ -5,13 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Вход — S.C.A.L.E</title>
+    <link rel="icon" type="image/svg+xml" href="{% static 'core/img/favicon.svg' %}">
     <link href="{% static 'core/vendor/bootstrap.min.css' %}" rel="stylesheet">
-    <link href="{% static 'core/theme.css' %}?v=5" rel="stylesheet">
+    <link href="{% static 'core/theme.css' %}?v=7" rel="stylesheet">
 </head>
 <body class="login-body">
     <main class="login-wrap">
         <div class="login-card">
-            <div class="logo">S.C.A.L.E</div>
+            <div class="login-brand-row">
+                <img class="login-brand-logo" src="{% static 'core/img/logo.svg' %}" alt="S.C.A.L.E" width="54" height="54">
+                <div class="logo">S.C.A.L.E</div>
+            </div>
             <div class="tagline">Staff Curriculum &amp; Allocation Ledger Engine</div>
             <div class="rule"></div>
             {% if form.errors %}

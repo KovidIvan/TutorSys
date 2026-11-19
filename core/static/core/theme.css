@@ -66,8 +66,21 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {
     color: #fff !important;
     text-decoration: none;
     display: inline-flex;
-    flex-direction: column;
+    flex-direction: row;
+    align-items: center;
+    gap: 11px;
     line-height: 1.05;
+}
+.scale-brand-logo {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 4px 10px rgba(2, 6, 17, 0.45));
+}
+.scale-brand-text {
+    display: inline-flex;
+    flex-direction: column;
 }
 .scale-brand small {
     font-family: var(--sans);
@@ -308,11 +321,21 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {
 .container-main > .container-fluid > .d-flex label { color: #fff; }
 
 .scale-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     text-align: center;
     padding: 18px 0 28px;
     font-size: 0.78rem;
     letter-spacing: 0.08em;
     color: rgba(191, 219, 254, 0.55);
+}
+.scale-footer-logo {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    filter: drop-shadow(0 2px 6px rgba(2, 6, 17, 0.45));
 }
 .scale-footer b { font-family: var(--serif); letter-spacing: 0.2em; color: rgba(255,255,255,0.85); }
 
@@ -328,6 +351,19 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {
     border: 1px solid rgba(147, 197, 253, 0.28);
     box-shadow: 0 28px 75px rgba(2, 6, 18, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.28);
     color: #fff;
+}
+.login-card .login-brand-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+}
+.login-card .login-brand-logo {
+    width: 54px;
+    height: 54px;
+    border-radius: 14px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 8px 20px rgba(2, 6, 18, 0.55));
 }
 .login-card .logo {
     font-family: var(--serif);

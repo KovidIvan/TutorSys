@@ -5,9 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Учёт учебной нагрузки{% endblock %} · S.C.A.L.E</title>
+    <link rel="icon" type="image/svg+xml" href="{% static 'core/img/favicon.svg' %}">
 
     <link href="{% static 'core/vendor/bootstrap.min.css' %}" rel="stylesheet">
-    <link href="{% static 'core/theme.css' %}?v=6" rel="stylesheet">
+    <link href="{% static 'core/theme.css' %}?v=7" rel="stylesheet">
     <script src="{% static 'core/vendor/htmx.min.js' %}" defer></script>
 
     <style>
@@ -23,7 +24,10 @@
     <!-- Навигация -->
     <nav class="navbar navbar-expand-lg navbar-dark scale-nav">
         <div class="container-fluid">
-            <a class="scale-brand" href="/">S.C.A.L.E<small>Staff Curriculum &amp; Allocation</small></a>
+            <a class="scale-brand" href="/">
+                <img class="scale-brand-logo" src="{% static 'core/img/logo.svg' %}" alt="S.C.A.L.E" width="38" height="38">
+                <span class="scale-brand-text">S.C.A.L.E<small>Staff Curriculum &amp; Allocation</small></span>
+            </a>
             <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -111,6 +115,7 @@
     </div>
 
     <footer class="scale-footer">
+        <img class="scale-footer-logo" src="{% static 'core/img/logo.svg' %}" alt="S.C.A.L.E" width="22" height="22">
         <b>S.C.A.L.E</b> &nbsp;·&nbsp; Staff Curriculum &amp; Allocation Ledger Engine
     </footer>
 
